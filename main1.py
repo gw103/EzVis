@@ -177,6 +177,14 @@ def extract_base_score(score_str):
         return 4 if score_str >= 4 else 0
     return 0
 
+# Function to prepare dataframe for display (fix mixed types)
+def prepare_df_for_display(df):
+    """Convert score column to string to avoid PyArrow errors"""
+    df_copy = df.copy()
+    if 'score' in df_copy.columns:
+        df_copy['score'] = df_copy['score'].astype(str)
+    return df_copy
+
 # Function to generate template data
 def create_template(mode="Individual Behavior"):
     if mode == "Autonomic and Sensorimotor Functions":
@@ -326,6 +334,7 @@ def normalize_data(df):
 def process_autonomic_data(df):
     """Process autonomic data to find start and end times for abnormalities"""
     # Extract base scores
+    df = df.copy()
     df['base_score'] = df['score'].apply(extract_base_score)
     
     # Get all unique times
@@ -411,7 +420,8 @@ with st.expander("📝 Download Data Templates", expanded=True):
     with col1:
         st.subheader("CSV Template")
         template_csv = create_template(template_mode)
-        st.dataframe(template_csv.head(8))
+        display_df = prepare_df_for_display(template_csv.head(8))
+        st.dataframe(display_df)
         
         # Convert to CSV
         csv = template_csv.to_csv(index=False).encode('utf-8')
@@ -427,7 +437,8 @@ with st.expander("📝 Download Data Templates", expanded=True):
     with col2:
         st.subheader("Excel Template")
         template_excel = create_template(template_mode)
-        st.dataframe(template_excel.head(8))
+        display_df = prepare_df_for_display(template_excel.head(8))
+        st.dataframe(display_df)
         
         # Create Excel file in memory
         output = BytesIO()
@@ -527,7 +538,8 @@ else:
                 with st.expander(f"🔬 {group}"):
                     df = st.session_state.experiments[group]
                     st.write(f"Observations: {len(df)}")
-                    st.dataframe(df.head(5))
+                    display_df = prepare_df_for_display(df.head(5))
+                    st.dataframe(display_df)
                     
                     if st.button(f"❌ Remove {group}", key=f"remove_{group}"):
                         del st.session_state.experiments[group]
@@ -743,6 +755,10 @@ else:
                         obs_df = df[df['observation'] == obs].sort_values('time')
                         if obs_df.empty:
                             continue
+                        
+                        # Apply base_score extraction to the subset
+                        obs_df = obs_df.copy()
+                        obs_df['base_score'] = obs_df['score'].apply(extract_base_score)
                         
                         fig, ax = plt.subplots(figsize=(8, 2))
                         ax.set_title(obs)
