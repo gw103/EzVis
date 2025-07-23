@@ -10,7 +10,49 @@ import re
 import uuid
 import random
 import datetime
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+from matplotlib import font_manager
+import platform
 
+# 配置中文字体
+def configure_chinese_fonts():
+    """配置matplotlib支持中文显示"""
+    system = platform.system()
+    
+    if system == "Windows":
+        # Windows系统的中文字体
+        chinese_fonts = ['Microsoft YaHei', 'SimHei', 'KaiTi', 'SimSun']
+    elif system == "Darwin":  # macOS
+        # macOS系统的中文字体
+        chinese_fonts = ['PingFang SC', 'Hiragino Sans GB', 'STHeiti', 'Arial Unicode MS']
+    else:  # Linux
+        # Linux系统的中文字体
+        chinese_fonts = ['WenQuanYi Micro Hei', 'DejaVu Sans', 'Liberation Sans']
+    
+    # 尝试设置可用的中文字体
+    for font in chinese_fonts:
+        try:
+            # 检查字体是否可用
+            if font in [f.name for f in font_manager.fontManager.ttflist]:
+                plt.rcParams['font.sans-serif'] = [font] + plt.rcParams['font.sans-serif']
+                plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+                print(f"已设置中文字体: {font}")
+                return True
+        except:
+            continue
+    
+    # 如果上述字体都不可用，尝试通用配置
+    try:
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans', 'Liberation Sans', 'sans-serif']
+        plt.rcParams['axes.unicode_minus'] = False
+        return True
+    except:
+        print("警告: 无法配置中文字体，中文可能显示为方框")
+        return False
+
+# 在文件开头调用字体配置
+configure_chinese_fonts()
 # Language translations
 TRANSLATIONS = {
     'en': {
