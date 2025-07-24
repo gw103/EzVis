@@ -15,45 +15,39 @@ import matplotlib as mpl
 from matplotlib import font_manager
 import platform
 
-# 配置中文字体
+# Configure Chinese fonts
 def configure_chinese_fonts():
-    """配置matplotlib支持中文显示"""
+    """Configure matplotlib to support Chinese display"""
     system = platform.system()
     
     if system == "Windows":
-        # Windows系统的中文字体
         chinese_fonts = ['Microsoft YaHei', 'SimHei', 'KaiTi', 'SimSun']
     elif system == "Darwin":  # macOS
-        # macOS系统的中文字体
         chinese_fonts = ['PingFang SC', 'Hiragino Sans GB', 'STHeiti', 'Arial Unicode MS']
     else:  # Linux
-        # Linux系统的中文字体
         chinese_fonts = ['WenQuanYi Micro Hei', 'DejaVu Sans', 'Liberation Sans']
     
-    # 尝试设置可用的中文字体
     for font in chinese_fonts:
         try:
-            # 检查字体是否可用
             if font in [f.name for f in font_manager.fontManager.ttflist]:
                 plt.rcParams['font.sans-serif'] = [font] + plt.rcParams['font.sans-serif']
-                plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
-                print(f"已设置中文字体: {font}")
+                plt.rcParams['axes.unicode_minus'] = False
+                print(f"Set Chinese font: {font}")
                 return True
         except:
             continue
     
-    # 如果上述字体都不可用，尝试通用配置
     try:
         plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans', 'Liberation Sans', 'sans-serif']
         plt.rcParams['axes.unicode_minus'] = False
         return True
     except:
-        print("警告: 无法配置中文字体，中文可能显示为方框")
+        print("Warning: Cannot configure Chinese fonts")
         return False
 
-# 在文件开头调用字体配置
 configure_chinese_fonts()
-# Language translations
+
+# Language translations - Updated with Body Weight mode
 TRANSLATIONS = {
     'en': {
         'page_title': '📊 FOB Test Analysis Dashboard',
@@ -78,6 +72,7 @@ TRANSLATIONS = {
         'autonomic_functions': 'Autonomic and Sensorimotor Functions',
         'reflex_capabilities': 'Reflex Capabilities',
         'body_temperature': 'Body Temperature',
+        'body_weight': 'Body Weight',
         'convulsive_behaviors': 'Convulsive Behaviors and Excitability',
         'experiment_groups': 'Experiment Groups',
         'select_group_edit': 'Select Group to Edit',
@@ -91,6 +86,7 @@ TRANSLATIONS = {
         'reset': '🔄 Reset',
         'export_csv': '📥 Export Worksheet as CSV',
         'mean_scores': '📊 Mean Scores Summary',
+        'weight_summary': '⚖️ Weight Change Summary',
         'filter_time': 'Filter by time points:',
         'time': 'Time',
         'observation': 'Observation',
@@ -160,7 +156,21 @@ TRANSLATIONS = {
         'percentage_abnormal': '% Abnormal',
         'groups_to_plot': 'Groups to plot:',
         'select_groups_chart': 'Select groups to display in the chart:',
-        'all_time_points': 'All Time Points'
+        'all_time_points': 'All Time Points',
+        'before_experiment': 'Before Experiment',
+        'after_experiment': 'After Experiment',
+        'weight_change': 'Weight Change',
+        'weight_g': 'Weight (g)',
+        'percent_change': '% Change',
+        'weight_instruction': '⚖️ **Instructions**: Enter the weight (in grams) for each animal before and after the experiment. Weight changes will be calculated automatically.',
+        'mean_weight': 'Mean Weight',
+        'weight_loss': 'Weight Loss',
+        'weight_gain': 'Weight Gain',
+        'no_change': 'No Change',
+        'animal': 'Animal',
+        'change_g': 'Change (g)',
+        'initial_weight': 'Initial Weight',
+        'final_weight': 'Final Weight'
     },
     'zh': {
         'page_title': '📊 FOB测试分析仪表板',
@@ -185,6 +195,7 @@ TRANSLATIONS = {
         'autonomic_functions': '自主神经和感觉运动功能',
         'reflex_capabilities': '反射能力',
         'body_temperature': '体温',
+        'body_weight': '体重',
         'convulsive_behaviors': '惊厥行为和兴奋性',
         'experiment_groups': '实验组',
         'select_group_edit': '选择要编辑的组',
@@ -198,6 +209,7 @@ TRANSLATIONS = {
         'reset': '🔄 重置',
         'export_csv': '📥 导出工作表为CSV',
         'mean_scores': '📊 平均分数汇总',
+        'weight_summary': '⚖️ 体重变化汇总',
         'filter_time': '按时间点筛选：',
         'time': '时间',
         'observation': '观察项',
@@ -267,13 +279,37 @@ TRANSLATIONS = {
         'percentage_abnormal': '异常百分比',
         'groups_to_plot': '要绘制的组：',
         'select_groups_chart': '选择要在图表中显示的组：',
-        'all_time_points': '所有时间点'
+        'all_time_points': '所有时间点',
+        'before_experiment': '实验前',
+        'after_experiment': '实验后',
+        'weight_change': '体重变化',
+        'weight_g': '体重 (克)',
+        'percent_change': '变化百分比',
+        'weight_instruction': '⚖️ **说明**：输入每只动物实验前和实验后的体重（以克为单位）。体重变化将自动计算。',
+        'mean_weight': '平均体重',
+        'weight_loss': '体重减轻',
+        'weight_gain': '体重增加',
+        'no_change': '无变化',
+        'animal': '动物',
+        'change_g': '变化 (克)',
+        'initial_weight': '初始体重',
+        'final_weight': '最终体重'
     }
 }
 
 # Observation translations
 OBSERVATION_TRANSLATIONS = {
     'en': {
+        # General behavior observations
+        'spontaneous exploration': 'spontaneous exploration',
+        'grooming': 'grooming',
+        'smelling its congeners': 'smelling its congeners',
+        'normal resting state': 'normal resting state',
+        'alertness': 'alertness',
+        'distending / oedema': 'distending / oedema',
+        'bad condition': 'bad condition',
+        'moribund': 'moribund',
+        'dead': 'dead',
         # Autonomic observations
         'piloerection': 'piloerection',
         'skin color': 'skin color',
@@ -305,15 +341,21 @@ OBSERVATION_TRANSLATIONS = {
         'straub': 'straub',
         'opisthotonus': 'opisthotonus',
         'convulsion': 'convulsion',
-        # General behaviors
-        'Locomotion': 'Locomotion',
-        'Rearing': 'Rearing',
-        'Grooming': 'Grooming',
-        'Sniffing': 'Sniffing',
-        'Freezing': 'Freezing',
-        'body temperature': 'body temperature'
+        # Other
+        'body temperature': 'body temperature',
+        'body weight': 'body weight'
     },
     'zh': {
+        # General behavior observations
+        'spontaneous exploration': '自发探索',
+        'grooming': '理毛',
+        'smelling its congeners': '嗅探同类',
+        'normal resting state': '正常休息状态',
+        'alertness': '警觉性',
+        'distending / oedema': '肿胀/水肿',
+        'bad condition': '状态不佳',
+        'moribund': '濒死',
+        'dead': '死亡',
         # Autonomic observations
         'piloerection': '立毛',
         'skin color': '皮肤颜色',
@@ -345,13 +387,9 @@ OBSERVATION_TRANSLATIONS = {
         'straub': '竖尾反应',
         'opisthotonus': '角弓反张',
         'convulsion': '惊厥',
-        # General behaviors
-        'Locomotion': '运动',
-        'Rearing': '直立',
-        'Grooming': '理毛',
-        'Sniffing': '嗅探',
-        'Freezing': '僵直',
-        'body temperature': '体温'
+        # Other
+        'body temperature': '体温',
+        'body weight': '体重'
     }
 }
 
@@ -454,6 +492,20 @@ def set_custom_style():
             padding: 15px;
             margin-bottom: 20px;
         }
+        .weight-table {
+            margin-top: 20px;
+        }
+        .weight-loss {
+            color: #ff4444;
+            font-weight: bold;
+        }
+        .weight-gain {
+            color: #00aa00;
+            font-weight: bold;
+        }
+        .no-change {
+            color: #666666;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -473,6 +525,18 @@ st.title(t('main_title'))
 st.markdown(t('main_subtitle'))
 
 # Constants for modes
+GENERAL_BEHAVIOR_OBSERVATIONS = [
+    'spontaneous exploration',
+    'grooming',
+    'smelling its congeners',
+    'normal resting state',
+    'alertness',
+    'distending / oedema',
+    'bad condition',
+    'moribund',
+    'dead'
+]
+
 AUTONOMIC_OBSERVATIONS = [
     'piloerection',
     'skin color',
@@ -510,11 +574,13 @@ CONVULSIVE_OBSERVATIONS = [
     'convulsion'
 ]
 
+# Updated ALL_MODES to include Body Weight
 ALL_MODES = [
     "General Behavior", 
     "Autonomic and Sensorimotor Functions", 
     "Reflex Capabilities", 
-    "Body Temperature", 
+    "Body Temperature",
+    "Body Weight",
     "Convulsive Behaviors and Excitability"
 ]
 
@@ -620,6 +686,43 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
         
         return pd.DataFrame(data)
     
+    elif mode == "Body Weight":
+        # Generate weight data for before and after experiment
+        if animal_type == "rat":
+            base_weight_mean = 250  # Rats are heavier
+        elif animal_type == "mouse":
+            base_weight_mean = 25   # Mice are lighter
+        else:
+            base_weight_mean = 100  # Default for custom animals
+            
+        data = {
+            'time': [],
+            'observation': []
+        }
+        for i in range(1, num_animals + 1):
+            data[f'{animal_type}_{i}'] = []
+        
+        # Only two time points for weight: before (0) and after (e.g., end of experiment)
+        for time_label in ['before', 'after']:
+            data['time'].append(time_label)
+            data['observation'].append('body weight')
+            for i in range(1, num_animals + 1):
+                if time_label == 'before':
+                    # Initial weight
+                    weight = np.random.normal(base_weight_mean, base_weight_mean * 0.1)
+                else:
+                    # After experiment - usually slight weight loss (stress, food restriction)
+                    initial_weight = float(data[f'{animal_type}_{i}'][0])
+                    # 90% chance of weight loss, 10% chance of weight gain
+                    if np.random.random() < 0.9:
+                        weight_change = np.random.uniform(-0.05, -0.01) * initial_weight  # 1-5% loss
+                    else:
+                        weight_change = np.random.uniform(0, 0.02) * initial_weight  # 0-2% gain
+                    weight = initial_weight + weight_change
+                data[f'{animal_type}_{i}'].append(f"{weight:.1f}")
+        
+        return pd.DataFrame(data)
+    
     elif mode in ["Convulsive Behaviors and Excitability", "Autonomic and Sensorimotor Functions", "Reflex Capabilities"]:
         # Binary Normal/Abnormal system
         observations = []
@@ -651,7 +754,7 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
         return pd.DataFrame(data)
     
     else:  # General Behavior
-        behaviors = ['Locomotion', 'Rearing', 'Grooming', 'Sniffing', 'Freezing']
+        behaviors = GENERAL_BEHAVIOR_OBSERVATIONS
         data = {
             'time': [],
             'observation': []
@@ -720,12 +823,18 @@ def fill_all_worksheets_with_random_data():
                 observations = CONVULSIVE_OBSERVATIONS
             elif mode == "Body Temperature":
                 observations = ['body temperature']
+            elif mode == "Body Weight":
+                observations = ['body weight']
             else:
-                observations = ['Locomotion', 'Rearing', 'Grooming', 'Sniffing', 'Freezing']
+                observations = GENERAL_BEHAVIOR_OBSERVATIONS
             
             # Check if worksheet exists, if not create it
             if worksheet_key not in st.session_state:
-                times = [0, 15, 30, 45, 60]
+                if mode == "Body Weight":
+                    times = ['before', 'after']
+                else:
+                    times = [0, 15, 30, 45, 60]
+                
                 data = []
                 for time in times:
                     for obs in observations:
@@ -733,6 +842,8 @@ def fill_all_worksheets_with_random_data():
                         for i in range(1, num_animals + 1):
                             if mode == "Body Temperature":
                                 row[f'{animal_type}_{i}'] = '37.0'
+                            elif mode == "Body Weight":
+                                row[f'{animal_type}_{i}'] = '25.0' if animal_type == 'mouse' else '250.0'
                             elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
                                 row[f'{animal_type}_{i}'] = 'Normal'
                             else:
@@ -742,7 +853,10 @@ def fill_all_worksheets_with_random_data():
             
             # Get existing times from the worksheet
             existing_df = st.session_state[worksheet_key]
-            times = sorted(existing_df['time'].unique())
+            if mode == "Body Weight":
+                times = ['before', 'after']
+            else:
+                times = sorted(existing_df['time'].unique())
             
             # Generate random data
             random_df = generate_random_data(mode, times, num_animals, animal_type)
@@ -762,6 +876,10 @@ def fill_all_worksheets_with_random_data():
 def process_data_with_episodes(df, mode, animal_type="mouse", num_animals=8):
     """Process data and track onset/offset of abnormal episodes"""
     results = []
+    
+    # Skip weight mode as it doesn't have episodes
+    if mode == "Body Weight":
+        return pd.DataFrame(results)
     
     # Get appropriate observations based on mode
     if mode == "Autonomic and Sensorimotor Functions":
@@ -865,6 +983,30 @@ def create_template(mode="General Behavior", num_animals=8, animal_type="mouse")
         
         return pd.DataFrame(data)
     
+    elif mode == "Body Weight":
+        # Weight template with before/after
+        data = {
+            'time': [],
+            'observation': []
+        }
+        # Add animal columns
+        for i in range(1, num_animals + 1):
+            data[f'{animal_type}_{i}'] = []
+        
+        for time_label in ['before', 'after']:
+            data['time'].append(time_label)
+            data['observation'].append('body weight')
+            for i in range(1, num_animals + 1):
+                if animal_type == "mouse":
+                    weight = 25.0 if time_label == 'before' else 24.5
+                elif animal_type == "rat":
+                    weight = 250.0 if time_label == 'before' else 245.0
+                else:
+                    weight = 100.0 if time_label == 'before' else 98.0
+                data[f'{animal_type}_{i}'].append(f"{weight:.1f}")
+        
+        return pd.DataFrame(data)
+    
     elif mode in ["Convulsive Behaviors and Excitability", "Autonomic and Sensorimotor Functions", "Reflex Capabilities"]:
         times = [0, 15, 30]
         observations = []
@@ -894,7 +1036,7 @@ def create_template(mode="General Behavior", num_animals=8, animal_type="mouse")
         return pd.DataFrame(data)
     
     else:  # General Behavior
-        behaviors = ['Locomotion', 'Rearing', 'Grooming', 'Sniffing', 'Freezing']
+        behaviors = GENERAL_BEHAVIOR_OBSERVATIONS
         times = [0, 15, 30]
         
         data = {
@@ -934,9 +1076,11 @@ def create_worksheet(mode, experiment_name, project_info):
     if experiment_name in st.session_state.comparison_groups.get(st.session_state.active_project, []):
         st.success(t('is_comparison'))
     
-    # Show binary scoring instruction for relevant modes
+    # Show appropriate instruction based on mode
     if mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
         st.markdown(f'<div class="binary-instruction">{t("binary_instruction")}</div>', unsafe_allow_html=True)
+    elif mode == "Body Weight":
+        st.markdown(f'<div class="binary-instruction">{t("weight_instruction")}</div>', unsafe_allow_html=True)
     
     # Create a unique key for this worksheet that includes mode
     worksheet_key = f"worksheet_{experiment_name}_{mode}"
@@ -951,11 +1095,17 @@ def create_worksheet(mode, experiment_name, project_info):
             observations = CONVULSIVE_OBSERVATIONS
         elif mode == "Body Temperature":
             observations = ['body temperature']
+        elif mode == "Body Weight":
+            observations = ['body weight']
         else:
-            observations = ['Locomotion', 'Rearing', 'Grooming', 'Sniffing', 'Freezing']
+            observations = GENERAL_BEHAVIOR_OBSERVATIONS
         
         # Create initial data structure
-        times = [0, 15, 30, 45, 60]
+        if mode == "Body Weight":
+            times = ['before', 'after']
+        else:
+            times = [0, 15, 30, 45, 60]
+        
         data = []
         for time in times:
             for obs in observations:
@@ -963,6 +1113,13 @@ def create_worksheet(mode, experiment_name, project_info):
                 for i in range(1, num_animals + 1):
                     if mode == "Body Temperature":
                         row[f'{animal_type}_{i}'] = '37.0'
+                    elif mode == "Body Weight":
+                        if animal_type == 'mouse':
+                            row[f'{animal_type}_{i}'] = '25.0'
+                        elif animal_type == 'rat':
+                            row[f'{animal_type}_{i}'] = '250.0'
+                        else:
+                            row[f'{animal_type}_{i}'] = '100.0'
                     elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
                         row[f'{animal_type}_{i}'] = 'Normal'
                     else:
@@ -975,16 +1132,27 @@ def create_worksheet(mode, experiment_name, project_info):
     df = st.session_state[worksheet_key].copy()
     
     # Configure column settings with better formatting
-    column_config = {
-        'time': st.column_config.NumberColumn(
-            f"{t('time')} (min)", 
-            min_value=0, 
-            max_value=300, 
-            step=5,
-            format="%d min"
-        ),
-        'observation': st.column_config.TextColumn(t('observation'), disabled=True)
-    }
+    if mode == "Body Weight":
+        column_config = {
+            'time': st.column_config.SelectboxColumn(
+                t('time'),
+                options=['before', 'after'],
+                default='before',
+                disabled=True
+            ),
+            'observation': st.column_config.TextColumn(t('observation'), disabled=True)
+        }
+    else:
+        column_config = {
+            'time': st.column_config.NumberColumn(
+                f"{t('time')} (min)", 
+                min_value=0, 
+                max_value=300, 
+                step=5,
+                format="%d min"
+            ),
+            'observation': st.column_config.TextColumn(t('observation'), disabled=True)
+        }
     
     # Add animal columns configuration
     for i in range(1, num_animals + 1):
@@ -993,6 +1161,12 @@ def create_worksheet(mode, experiment_name, project_info):
                 f'{t(animal_type).capitalize()} {i}',
                 help=f"Temperature for {animal_type} {i} in Celsius (e.g., 37.2)",
                 max_chars=5
+            )
+        elif mode == "Body Weight":
+            column_config[f'{animal_type}_{i}'] = st.column_config.TextColumn(
+                f'{t(animal_type).capitalize()} {i}',
+                help=f"Weight for {animal_type} {i} in grams",
+                max_chars=6
             )
         elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
             column_config[f'{animal_type}_{i}'] = st.column_config.SelectboxColumn(
@@ -1026,7 +1200,7 @@ def create_worksheet(mode, experiment_name, project_info):
                 df,
                 column_config=column_config,
                 use_container_width=True,
-                num_rows="dynamic",
+                num_rows="dynamic" if mode != "Body Weight" else "fixed",
                 key=f"editor_{worksheet_key}_form",
                 hide_index=True
             )
@@ -1040,18 +1214,23 @@ def create_worksheet(mode, experiment_name, project_info):
                 submitted = st.form_submit_button(t('save_changes'), use_container_width=True, type="primary")
             with col2:
                 fill_random = st.form_submit_button(t('fill_random'), use_container_width=True)
-            with col3:
-                st.markdown(f"**{t('add_new_timestep')}**")
-                new_timestep = st.number_input(
-                    t('next_timestep'), 
-                    min_value=0,
-                    max_value=300,
-                    step=5,
-                    value=edited_df['time'].max() + 5 if not edited_df.empty else 0,
-                    key=f"new_time_{worksheet_key}",
-                    label_visibility="collapsed"
-                )
-                add_timestep = st.form_submit_button(t('add_timestep'), use_container_width=True)
+            
+            if mode != "Body Weight":
+                with col3:
+                    st.markdown(f"**{t('add_new_timestep')}**")
+                    new_timestep = st.number_input(
+                        t('next_timestep'), 
+                        min_value=0,
+                        max_value=300,
+                        step=5,
+                        value=edited_df['time'].max() + 5 if not edited_df.empty else 0,
+                        key=f"new_time_{worksheet_key}",
+                        label_visibility="collapsed"
+                    )
+                    add_timestep = st.form_submit_button(t('add_timestep'), use_container_width=True)
+            else:
+                add_timestep = False
+                
             with col4:
                 reset = st.form_submit_button(t('reset'), use_container_width=True)
             
@@ -1070,12 +1249,15 @@ def create_worksheet(mode, experiment_name, project_info):
             
             if fill_random:
                 # Generate random data
-                times = sorted(edited_df['time'].unique())
+                if mode == "Body Weight":
+                    times = ['before', 'after']
+                else:
+                    times = sorted(edited_df['time'].unique())
                 random_df = generate_random_data(mode, times, num_animals, animal_type)
                 st.session_state[worksheet_key] = random_df
                 st.rerun()
             
-            if add_timestep:
+            if add_timestep and mode != "Body Weight":
                 # Add new timestep with all observations
                 new_rows = []
                 observations = edited_df['observation'].unique()
@@ -1109,7 +1291,10 @@ def create_worksheet(mode, experiment_name, project_info):
         col1, col2, col3 = st.columns([1, 1, 2])
         with col1:
             if st.button(t('fill_random'), use_container_width=True, key=f"random_auto_{worksheet_key}"):
-                times = sorted(st.session_state[worksheet_key]['time'].unique())
+                if mode == "Body Weight":
+                    times = ['before', 'after']
+                else:
+                    times = sorted(st.session_state[worksheet_key]['time'].unique())
                 random_df = generate_random_data(mode, times, num_animals, animal_type)
                 st.session_state[worksheet_key] = random_df
                 st.rerun()
@@ -1119,7 +1304,7 @@ def create_worksheet(mode, experiment_name, project_info):
             st.session_state[worksheet_key],
             column_config=column_config,
             use_container_width=True,
-            num_rows="dynamic",
+            num_rows="dynamic" if mode != "Body Weight" else "fixed",
             key=f"editor_{worksheet_key}_auto",
             hide_index=True
         )
@@ -1133,119 +1318,178 @@ def create_worksheet(mode, experiment_name, project_info):
         # Show save status with timestamp
         st.success(f"{t('auto_saved')} {datetime.datetime.now().strftime('%H:%M:%S')}")
         
-        # Quick actions - NEW TIMESTEP FUNCTIONALITY
-        st.markdown(f"**{t('add_new_timestep')}**")
-        col1, col2 = st.columns([3, 2])
-        with col1:
-            new_timestep_auto = st.number_input(
-                t('next_timestep'), 
-                min_value=0,
-                max_value=300,
-                step=5,
-                value=edited_df_auto['time'].max() + 5 if not edited_df_auto.empty else 0,
-                key=f"new_time_auto_{worksheet_key}",
-                label_visibility="collapsed"
-            )
-        with col2:
-            if st.button(t('add_timestep'), use_container_width=True):
-                # Add rows for new timestep
-                new_rows = []
-                observations = edited_df_auto['observation'].unique()
-                for obs in observations:
-                    new_row = {'time': new_timestep_auto, 'observation': obs}
-                    for i in range(1, num_animals + 1):
-                        if mode == "Body Temperature":
-                            new_row[f'{animal_type}_{i}'] = '37.0'
-                        elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
-                            new_row[f'{animal_type}_{i}'] = 'Normal'
-                        else:
-                            new_row[f'{animal_type}_{i}'] = '0'
-                    new_rows.append(new_row)
-                
-                # Append new rows
-                new_df = pd.concat([edited_df_auto, pd.DataFrame(new_rows)], ignore_index=True)
-                st.session_state[worksheet_key] = new_df
-                st.rerun()
+        # Quick actions - NEW TIMESTEP FUNCTIONALITY (not for Body Weight)
+        if mode != "Body Weight":
+            st.markdown(f"**{t('add_new_timestep')}**")
+            col1, col2 = st.columns([3, 2])
+            with col1:
+                new_timestep_auto = st.number_input(
+                    t('next_timestep'), 
+                    min_value=0,
+                    max_value=300,
+                    step=5,
+                    value=edited_df_auto['time'].max() + 5 if not edited_df_auto.empty else 0,
+                    key=f"new_time_auto_{worksheet_key}",
+                    label_visibility="collapsed"
+                )
+            with col2:
+                if st.button(t('add_timestep'), use_container_width=True):
+                    # Add rows for new timestep
+                    new_rows = []
+                    observations = edited_df_auto['observation'].unique()
+                    for obs in observations:
+                        new_row = {'time': new_timestep_auto, 'observation': obs}
+                        for i in range(1, num_animals + 1):
+                            if mode == "Body Temperature":
+                                new_row[f'{animal_type}_{i}'] = '37.0'
+                            elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
+                                new_row[f'{animal_type}_{i}'] = 'Normal'
+                            else:
+                                new_row[f'{animal_type}_{i}'] = '0'
+                        new_rows.append(new_row)
+                    
+                    # Append new rows
+                    new_df = pd.concat([edited_df_auto, pd.DataFrame(new_rows)], ignore_index=True)
+                    st.session_state[worksheet_key] = new_df
+                    st.rerun()
     
     # Get the current dataframe (from whichever tab was used)
     current_df = st.session_state[worksheet_key]
     
-    # Calculate and display mean scores (outside the tabs)
-    st.subheader(t('mean_scores'))
-    
-    # Add a filter for time points
-    unique_times = sorted(current_df['time'].unique())
-    selected_times = st.multiselect(
-        t('filter_time'),
-        unique_times,
-        default=unique_times[:3] if len(unique_times) > 3 else unique_times
-    )
-    
-    summary_data = []
-    filtered_df = current_df[current_df['time'].isin(selected_times)] if selected_times else current_df
-    
-    for _, row in filtered_df.iterrows():
-        animal_scores = [row[f'{animal_type}_{i}'] for i in range(1, num_animals + 1) 
-                        if f'{animal_type}_{i}' in row]
+    # Display appropriate summary based on mode
+    if mode == "Body Weight":
+        st.subheader(t('weight_summary'))
         
-        if mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
-            # For binary modes, calculate percentage abnormal
-            abnormal_count = sum(1 for score in animal_scores if str(score).lower() == 'abnormal')
-            percent_abnormal = (abnormal_count / len(animal_scores)) * 100 if animal_scores else 0
-            status = t('abnormal') if abnormal_count > 0 else t('normal')
+        # Calculate weight changes
+        weight_data = []
+        before_df = current_df[current_df['time'] == 'before']
+        after_df = current_df[current_df['time'] == 'after']
+        
+        if not before_df.empty and not after_df.empty:
+            for i in range(1, num_animals + 1):
+                animal_col = f'{animal_type}_{i}'
+                if animal_col in before_df.columns:
+                    try:
+                        before_weight = float(before_df.iloc[0][animal_col])
+                        after_weight = float(after_df.iloc[0][animal_col])
+                        change = after_weight - before_weight
+                        percent_change = (change / before_weight) * 100
+                        
+                        status = t('weight_loss') if change < 0 else (t('weight_gain') if change > 0 else t('no_change'))
+                        
+                        weight_data.append({
+                            t('animal'): f'{t(animal_type).capitalize()} {i}',
+                            f"{t('before_experiment')} (g)": f"{before_weight:.1f}",
+                            f"{t('after_experiment')} (g)": f"{after_weight:.1f}",
+                            f"{t('change_g')}": f"{change:.1f}",
+                            t('percent_change'): f"{percent_change:.2f}%",
+                            t('status'): status
+                        })
+                    except (ValueError, TypeError):
+                        continue
+        
+        if weight_data:
+            weight_df = pd.DataFrame(weight_data)
+            st.dataframe(
+                weight_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    t('status'): st.column_config.TextColumn(t('status'), width="small")
+                }
+            )
             
-            summary_data.append({
-                t('time'): f"{int(row['time'])} min",
-                t('observation'): t_obs(row['observation']),
-                t('abnormal_count'): f"{abnormal_count}/{len(animal_scores)}",
-                t('percentage_abnormal'): f"{percent_abnormal:.1f}%",
-                t('status'): status
-            })
-        else:
-            mean_score = calculate_mean_score(animal_scores)
-            
-            # Count how many animals have valid scores
-            valid_scores = sum(1 for score in animal_scores if pd.notna(score) and score != '')
-            
-            # Determine status based on mode and thresholds
-            if pd.isna(mean_score):
-                status = 'N/A'
-            else:
-                if mode == "Body Temperature":
-                    status = t('normal') if 36 <= mean_score <= 38 else t('abnormal')
-                else:  # General Behavior
-                    if mean_score < 2 or mean_score > 6:
-                        status = t('abnormal')
-                    else:
-                        status = t('normal')
-            
-            summary_data.append({
-                t('time'): f"{int(row['time'])} min",
-                t('observation'): t_obs(row['observation']),
-                t('mean_score'): f"{mean_score:.2f}" if not pd.isna(mean_score) else "N/A",
-                f"{t('valid')} {t(animal_type).capitalize()}s": f"{valid_scores}/{num_animals}",
-                t('status'): status
-            })
-    
-    summary_df = pd.DataFrame(summary_data)
-    
-    # Display with custom styling
-    st.dataframe(
-        summary_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            t('status'): st.column_config.TextColumn(t('status'), width="small")
-        }
-    )
-    
-    # Display abnormal episodes
-    st.subheader(t('abnormal_episodes'))
-    episodes_df = process_data_with_episodes(current_df, mode, animal_type, num_animals)
-    if not episodes_df.empty:
-        st.dataframe(episodes_df, use_container_width=True, hide_index=True)
+            # Calculate group statistics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                before_key = f"{t('before_experiment')} (g)"
+                mean_initial = np.mean([float(row[before_key]) for row in weight_data])
+                st.metric(f"{t('mean_weight')} - {t('before_experiment')}", f"{mean_initial:.1f} g")
+            with col2:
+                after_key = f"{t('after_experiment')} (g)"
+                mean_final = np.mean([float(row[after_key]) for row in weight_data])
+                st.metric(f"{t('mean_weight')} - {t('after_experiment')}", f"{mean_final:.1f} g")
+            with col3:
+                change_key = t('change_g')
+                mean_change = np.mean([float(row[change_key]) for row in weight_data])
+                st.metric(f"{t('mean_weight')} {t('weight_change')}", f"{mean_change:.1f} g")
     else:
-        st.info(t('no_abnormal'))
+        # Original mean scores summary for other modes
+        st.subheader(t('mean_scores'))
+        
+        # Add a filter for time points
+        unique_times = sorted(current_df['time'].unique())
+        selected_times = st.multiselect(
+            t('filter_time'),
+            unique_times,
+            default=unique_times[:3] if len(unique_times) > 3 else unique_times
+        )
+        
+        summary_data = []
+        filtered_df = current_df[current_df['time'].isin(selected_times)] if selected_times else current_df
+        
+        for _, row in filtered_df.iterrows():
+            animal_scores = [row[f'{animal_type}_{i}'] for i in range(1, num_animals + 1) 
+                            if f'{animal_type}_{i}' in row]
+            
+            if mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
+                # For binary modes, calculate percentage abnormal
+                abnormal_count = sum(1 for score in animal_scores if str(score).lower() == 'abnormal')
+                percent_abnormal = (abnormal_count / len(animal_scores)) * 100 if animal_scores else 0
+                status = t('abnormal') if abnormal_count > 0 else t('normal')
+                
+                summary_data.append({
+                    t('time'): f"{int(row['time'])} min",
+                    t('observation'): t_obs(row['observation']),
+                    t('abnormal_count'): f"{abnormal_count}/{len(animal_scores)}",
+                    t('percentage_abnormal'): f"{percent_abnormal:.1f}%",
+                    t('status'): status
+                })
+            else:
+                mean_score = calculate_mean_score(animal_scores)
+                
+                # Count how many animals have valid scores
+                valid_scores = sum(1 for score in animal_scores if pd.notna(score) and score != '')
+                
+                # Determine status based on mode and thresholds
+                if pd.isna(mean_score):
+                    status = 'N/A'
+                else:
+                    if mode == "Body Temperature":
+                        status = t('normal') if 36 <= mean_score <= 38 else t('abnormal')
+                    else:  # General Behavior
+                        if mean_score < 2 or mean_score > 6:
+                            status = t('abnormal')
+                        else:
+                            status = t('normal')
+                
+                summary_data.append({
+                    t('time'): f"{int(row['time'])} min",
+                    t('observation'): t_obs(row['observation']),
+                    t('mean_score'): f"{mean_score:.2f}" if not pd.isna(mean_score) else "N/A",
+                    f"{t('valid')} {t(animal_type).capitalize()}s": f"{valid_scores}/{num_animals}",
+                    t('status'): status
+                })
+        
+        summary_df = pd.DataFrame(summary_data)
+        
+        # Display with custom styling
+        st.dataframe(
+            summary_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                t('status'): st.column_config.TextColumn(t('status'), width="small")
+            }
+        )
+        
+        # Display abnormal episodes (not for Body Weight)
+        st.subheader(t('abnormal_episodes'))
+        episodes_df = process_data_with_episodes(current_df, mode, animal_type, num_animals)
+        if not episodes_df.empty:
+            st.dataframe(episodes_df, use_container_width=True, hide_index=True)
+        else:
+            st.info(t('no_abnormal'))
     
     return current_df
 
@@ -1268,10 +1512,11 @@ def create_comparative_plot(selected_for_viz, mode_eng, project, comparison_grou
         if worksheet_key in st.session_state:
             df = st.session_state[worksheet_key]
             if not df.empty:
-                all_times.update(df['time'].unique())
+                if mode_eng != "Body Weight":
+                    all_times.update(df['time'].unique())
                 valid_groups.append(exp)
     
-    if not all_times or not valid_groups:
+    if not valid_groups:
         st.warning("No data available for visualization")
         return None
     
@@ -1284,6 +1529,9 @@ def create_comparative_plot(selected_for_viz, mode_eng, project, comparison_grou
             key=f"time_select_{mode_eng}"
         )
         return create_general_behavior_plot(valid_groups, selected_time, mode_eng, animal_type, num_animals, comparison_group)
+    elif mode_eng == "Body Weight":
+        # For Body Weight, create a special comparison plot
+        return create_body_weight_comparison_plot(valid_groups, mode_eng, animal_type, num_animals, comparison_group)
     else:
         # For all other modes, use line charts
         # Allow selection of which groups to plot
@@ -1305,6 +1553,108 @@ def create_comparative_plot(selected_for_viz, mode_eng, project, comparison_grou
             return create_binary_score_line_plot(selected_groups_for_plot, mode_eng, animal_type, num_animals, comparison_group)
     
     return None
+
+def create_body_weight_comparison_plot(valid_groups, mode_eng, animal_type, num_animals, comparison_group):
+    """Create comparison plot for Body Weight mode"""
+    fig, ax = plt.subplots(figsize=(14, 8))
+    
+    group_names = []
+    before_means = []
+    before_stds = []
+    after_means = []
+    after_stds = []
+    percent_changes = []
+    
+    for group in valid_groups:
+        worksheet_key = f"worksheet_{group}_{mode_eng}"
+        if worksheet_key in st.session_state:
+            df = st.session_state[worksheet_key]
+            
+            before_df = df[df['time'] == 'before']
+            after_df = df[df['time'] == 'after']
+            
+            if not before_df.empty and not after_df.empty:
+                before_weights = []
+                after_weights = []
+                changes = []
+                
+                for i in range(1, num_animals + 1):
+                    animal_col = f'{animal_type}_{i}'
+                    if animal_col in before_df.columns:
+                        try:
+                            before_weight = float(before_df.iloc[0][animal_col])
+                            after_weight = float(after_df.iloc[0][animal_col])
+                            before_weights.append(before_weight)
+                            after_weights.append(after_weight)
+                            changes.append(((after_weight - before_weight) / before_weight) * 100)
+                        except (ValueError, TypeError):
+                            continue
+                
+                if before_weights and after_weights:
+                    group_names.append(group.split('_')[-1])
+                    before_means.append(np.mean(before_weights))
+                    before_stds.append(np.std(before_weights))
+                    after_means.append(np.mean(after_weights))
+                    after_stds.append(np.std(after_weights))
+                    percent_changes.append(np.mean(changes))
+    
+    if not group_names:
+        st.warning("No valid weight data found")
+        return None
+    
+    # Create grouped bar chart
+    x = np.arange(len(group_names))
+    width = 0.35
+    
+    # Plot before/after bars
+    bars1 = ax.bar(x - width/2, before_means, width, yerr=before_stds, 
+                     label=t('before_experiment'), capsize=5, alpha=0.8, color='#3498db')
+    bars2 = ax.bar(x + width/2, after_means, width, yerr=after_stds,
+                     label=t('after_experiment'), capsize=5, alpha=0.8, color='#e74c3c')
+    
+    # Color comparison group differently
+    for i, group in enumerate(group_names):
+        full_group = f"{st.session_state.projects[st.session_state.active_project]['name']}_Group_{group}"
+        if full_group == comparison_group:
+            bars1[i].set_color('#28a745')
+            bars2[i].set_color('#1e7e34')
+    
+    # Add value labels on bars
+    for i, (before, after) in enumerate(zip(before_means, after_means)):
+        # Before weight label
+        ax.text(i - width/2, before + before_stds[i] + 0.5, f"{before:.1f}", 
+                ha='center', va='bottom', fontsize=10, fontweight='bold')
+        # After weight label
+        ax.text(i + width/2, after + after_stds[i] + 0.5, f"{after:.1f}", 
+                ha='center', va='bottom', fontsize=10, fontweight='bold')
+        
+        # Add percentage change label above the group
+        change_color = 'red' if percent_changes[i] < 0 else 'green'
+        y_pos = max(before + before_stds[i], after + after_stds[i]) + 3
+        ax.text(i, y_pos, f"{percent_changes[i]:+.1f}%", 
+                ha='center', va='bottom', fontsize=11, fontweight='bold', 
+                color=change_color, bbox=dict(boxstyle="round,pad=0.3", facecolor='white', edgecolor=change_color))
+    
+    # Formatting
+    ax.set_xlabel(t('group'), fontsize=14)
+    ax.set_ylabel(f"{t('weight_g')}", fontsize=14)
+    ax.set_title(f"{t('body_weight')} - {t('before_experiment')} vs {t('after_experiment')} {t('comparative_viz')}", 
+                 fontsize=16, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(group_names, fontsize=12)
+    ax.legend(fontsize=12, loc='upper left')
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Add a subtle horizontal line at y=0 to show the baseline
+    if min(before_means + after_means) < 0:
+        ax.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
+    
+    # Set y-axis to start from 0 unless there are negative values
+    if min(before_means + after_means) >= 0:
+        ax.set_ylim(bottom=0)
+    
+    plt.tight_layout()
+    return fig
 
 def create_general_behavior_plot(valid_groups, selected_time, mode_eng, animal_type, num_animals, comparison_group):
     """Create plot for General Behavior mode"""
@@ -1539,165 +1889,6 @@ def create_binary_score_line_plot(selected_groups, mode_eng, animal_type, num_an
     plt.tight_layout()
     return fig
 
-def create_body_temperature_line_plot(selected_groups, mode_eng, animal_type, num_animals, comparison_group):
-    """Create line plot for Body Temperature mode"""
-    fig, ax = plt.subplots(figsize=(14, 8))
-    
-    # Colors for different groups
-    colors = plt.cm.tab10(np.linspace(0, 1, len(selected_groups)))
-    
-    for idx, group in enumerate(selected_groups):
-        worksheet_key = f"worksheet_{group}_{mode_eng}"
-        if worksheet_key in st.session_state:
-            df = st.session_state[worksheet_key]
-            
-            # Get unique times and sort them
-            times = sorted(df['time'].unique())
-            mean_temps = []
-            std_temps = []
-            
-            for time in times:
-                time_df = df[df['time'] == time]
-                all_temps = []
-                
-                for _, row in time_df.iterrows():
-                    # Collect all animal temperatures
-                    for i in range(1, num_animals + 1):
-                        if f'{animal_type}_{i}' in row:
-                            try:
-                                temp = float(row[f'{animal_type}_{i}'])
-                                all_temps.append(temp)
-                            except (ValueError, TypeError):
-                                continue
-                
-                if all_temps:
-                    mean_temps.append(np.mean(all_temps))
-                    std_temps.append(np.std(all_temps))
-                else:
-                    mean_temps.append(np.nan)
-                    std_temps.append(0)
-            
-            # Plot line with error bars
-            line_style = '-' if group != comparison_group else '--'
-            line_width = 2 if group != comparison_group else 3
-            marker = 'o' if group != comparison_group else 's'
-            
-            ax.errorbar(times, mean_temps, yerr=std_temps, 
-                       label=group.split('_')[-1], 
-                       color=colors[idx],
-                       linestyle=line_style,
-                       linewidth=line_width,
-                       marker=marker,
-                       markersize=8,
-                       capsize=5,
-                       alpha=0.8)
-    
-    # Add normal range
-    ax.axhspan(36, 38, alpha=0.2, color='green', label='Normal range (36-38°C)')
-    
-    # Formatting
-    ax.set_title(f"{t('body_temperature')} - {t('comparative_viz')}", fontsize=16, fontweight='bold')
-    ax.set_xlabel(f"{t('time')} (min)", fontsize=12)
-    ax.set_ylabel("Temperature (°C)", fontsize=12)
-    ax.grid(True, alpha=0.3)
-    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    
-    # Set y-axis limits
-    ax.set_ylim(34, 40)
-    
-    plt.tight_layout()
-    return fig
-
-def create_binary_score_line_plot(selected_groups, mode_eng, animal_type, num_animals, comparison_group):
-    """Create line plot for binary (Normal/Abnormal) scoring modes"""
-    # Get observations for this mode
-    if mode_eng == "Autonomic and Sensorimotor Functions":
-        observations = AUTONOMIC_OBSERVATIONS
-    elif mode_eng == "Reflex Capabilities":
-        observations = REFLEX_OBSERVATIONS
-    else:  # Convulsive Behaviors
-        observations = CONVULSIVE_OBSERVATIONS
-    
-    # Create subplot for each observation
-    n_obs = len(observations)
-    n_cols = 3
-    n_rows = (n_obs + n_cols - 1) // n_cols
-    
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, 5*n_rows))
-    if n_rows == 1:
-        axes = axes.reshape(1, -1)
-    axes = axes.flatten()
-    
-    # Colors for different groups
-    colors = plt.cm.tab10(np.linspace(0, 1, len(selected_groups)))
-    
-    for obs_idx, obs in enumerate(observations):
-        ax = axes[obs_idx]
-        
-        for group_idx, group in enumerate(selected_groups):
-            worksheet_key = f"worksheet_{group}_{mode_eng}"
-            if worksheet_key in st.session_state:
-                df = st.session_state[worksheet_key]
-                
-                # Filter for this observation
-                obs_df = df[df['observation'] == obs]
-                times = sorted(obs_df['time'].unique())
-                percentages = []
-                
-                for time in times:
-                    time_df = obs_df[obs_df['time'] == time]
-                    if not time_df.empty:
-                        abnormal_count = 0
-                        total_count = 0
-                        
-                        for _, row in time_df.iterrows():
-                            for i in range(1, num_animals + 1):
-                                if f'{animal_type}_{i}' in row:
-                                    if str(row[f'{animal_type}_{i}']).lower() == 'abnormal':
-                                        abnormal_count += 1
-                                    total_count += 1
-                        
-                        percentage = (abnormal_count / total_count * 100) if total_count > 0 else 0
-                        percentages.append(percentage)
-                    else:
-                        percentages.append(0)
-                
-                # Plot line
-                line_style = '-' if group != comparison_group else '--'
-                line_width = 2 if group != comparison_group else 3
-                marker = 'o' if group != comparison_group else 's'
-                
-                ax.plot(times, percentages, 
-                       label=group.split('_')[-1],
-                       color=colors[group_idx],
-                       linestyle=line_style,
-                       linewidth=line_width,
-                       marker=marker,
-                       markersize=6,
-                       alpha=0.8)
-        
-        # Formatting
-        ax.set_title(t_obs(obs), fontsize=12, fontweight='bold')
-        ax.set_xlabel(f"{t('time')} (min)", fontsize=10)
-        ax.set_ylabel(f"{t('percentage_abnormal')} (%)", fontsize=10)
-        ax.set_ylim(-5, 105)
-        ax.grid(True, alpha=0.3)
-        
-        # Add legend only to first subplot
-        if obs_idx == 0:
-            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
-    
-    # Hide unused subplots
-    for idx in range(n_obs, len(axes)):
-        axes[idx].set_visible(False)
-    
-    # Overall title
-    mode_title = mode_eng.replace("and Sensorimotor Functions", "")
-    fig.suptitle(f"{mode_title} - {t('comparative_viz')}", fontsize=16, fontweight='bold')
-    
-    plt.tight_layout()
-    return fig
-
 # Template Section
 with st.expander(t('download_templates'), expanded=False):
     st.markdown(f"""
@@ -1707,8 +1898,8 @@ with st.expander(t('download_templates'), expanded=False):
     # Mode selection for template
     template_mode = st.radio(t('template_type'), 
                             [t('general_behavior'), t('autonomic_functions'), 
-                             t('reflex_capabilities'), t('body_temperature'), 
-                             t('convulsive_behaviors')],
+                             t('reflex_capabilities'), t('body_temperature'),
+                             t('body_weight'), t('convulsive_behaviors')],
                             index=0,
                             horizontal=True)
     
@@ -1718,6 +1909,7 @@ with st.expander(t('download_templates'), expanded=False):
         t('autonomic_functions'): "Autonomic and Sensorimotor Functions",
         t('reflex_capabilities'): "Reflex Capabilities",
         t('body_temperature'): "Body Temperature",
+        t('body_weight'): "Body Weight",
         t('convulsive_behaviors'): "Convulsive Behaviors and Excitability"
     }
     template_mode_eng = mode_map[template_mode]
@@ -1873,8 +2065,8 @@ else:
     st.subheader(t('select_mode'))
     mode = st.radio(t('choose_mode'), 
                     [t('general_behavior'), t('autonomic_functions'), 
-                     t('reflex_capabilities'), t('body_temperature'), 
-                     t('convulsive_behaviors')],
+                     t('reflex_capabilities'), t('body_temperature'),
+                     t('body_weight'), t('convulsive_behaviors')],
                     horizontal=True)
     
     # Map mode back to English for internal use
@@ -1883,6 +2075,7 @@ else:
         t('autonomic_functions'): "Autonomic and Sensorimotor Functions",
         t('reflex_capabilities'): "Reflex Capabilities",
         t('body_temperature'): "Body Temperature",
+        t('body_weight'): "Body Weight",
         t('convulsive_behaviors'): "Convulsive Behaviors and Excitability"
     }
     mode_eng = mode_map[mode]
@@ -1970,93 +2163,166 @@ else:
                 # Generate comprehensive report
                 st.markdown(f"### {t('comparative_report')}")
                 
-                # Collect all abnormal episodes across groups
-                all_abnormal_episodes = {}
-                comparison_data = []
-                
-                # Get animal info
-                animal_type = project.get('animal_type', 'mouse')
-                if animal_type == 'custom':
-                    animal_type = project.get('custom_animal_name', 'animal')
-                num_animals = project.get('num_animals', 8)
-                
-                # Identify comparison group
-                comp_group = None
-                if st.session_state.active_project in st.session_state.comparison_groups:
-                    comp_groups = st.session_state.comparison_groups[st.session_state.active_project]
-                    if comp_groups and comp_groups[0] in selected_for_viz:
-                        comp_group = comp_groups[0]
-                
-                # Analyze each group
-                for exp in selected_for_viz:
-                    worksheet_key = f"worksheet_{exp}_{mode_eng}"
-                    if worksheet_key in st.session_state:
-                        df = st.session_state[worksheet_key]
-                        
-                        # Get abnormal episodes
-                        episodes_df = process_data_with_episodes(df, mode_eng, animal_type, num_animals)
-                        if not episodes_df.empty:
-                            all_abnormal_episodes[exp] = episodes_df
-                        
-                        # Collect comparison data
-                        group_data = {
-                            t('group'): exp,
-                            t('is_comparison'): '✓' if exp == comp_group else '',
-                            t('total_episodes'): len(episodes_df) if not episodes_df.empty else 0,
-                            t('affected_obs'): ', '.join(episodes_df[t('observation')].unique()) if not episodes_df.empty else t('none')
-                        }
-                        comparison_data.append(group_data)
-                
-                # Display comparison summary
-                st.markdown(f"#### {t('group_summary')}")
-                comparison_df = pd.DataFrame(comparison_data)
-                st.dataframe(
-                    comparison_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        t('is_comparison'): st.column_config.TextColumn(t('comparison_group'), width="small")
-                    }
-                )
-                
-                # Display detailed abnormal episodes by group
-                st.markdown(f"#### {t('episodes_by_group')}")
-                
-                if all_abnormal_episodes:
-                    # Create tabs for each group with episodes
-                    tabs = st.tabs([f"{group} ({len(episodes)})" for group, episodes in all_abnormal_episodes.items()])
+                # Special handling for Body Weight mode
+                if mode_eng == "Body Weight":
+                    # Collect weight change data
+                    weight_change_data = []
                     
-                    for i, (group, episodes) in enumerate(all_abnormal_episodes.items()):
-                        with tabs[i]:
-                            if group == comp_group:
-                                st.info(t('is_comparison'))
+                    # Get animal info
+                    animal_type = project.get('animal_type', 'mouse')
+                    if animal_type == 'custom':
+                        animal_type = project.get('custom_animal_name', 'animal')
+                    num_animals = project.get('num_animals', 8)
+                    
+                    # Identify comparison group
+                    comp_group = None
+                    if st.session_state.active_project in st.session_state.comparison_groups:
+                        comp_groups = st.session_state.comparison_groups[st.session_state.active_project]
+                        if comp_groups and comp_groups[0] in selected_for_viz:
+                            comp_group = comp_groups[0]
+                    
+                    # Analyze each group for weight changes
+                    for exp in selected_for_viz:
+                        worksheet_key = f"worksheet_{exp}_{mode_eng}"
+                        if worksheet_key in st.session_state:
+                            df = st.session_state[worksheet_key]
                             
-                            # Add group name to episodes
-                            episodes[t('group')] = group
+                            before_df = df[df['time'] == 'before']
+                            after_df = df[df['time'] == 'after']
                             
-                            # Display episodes
-                            st.dataframe(
-                                episodes[[t('observation'), t('onset_time'), t('offset_time'), t('duration'), t('peak_score')]],
-                                use_container_width=True,
-                                hide_index=True
-                            )
-                            
-                            # Summary statistics for this group
-                            st.markdown(f"**{t('summary')}**")
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric(t('total_episodes'), len(episodes))
-                            with col2:
-                                st.metric(t('avg_duration'), f"{episodes[t('duration')].mean():.1f} min" if len(episodes) > 0 else "N/A")
-                            with col3:
-                                if mode_eng in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
-                                    st.metric(t('max_peak'), episodes[t('peak_score')].max() if len(episodes) > 0 else "N/A")
-                                else:
-                                    st.metric(t('max_peak'), f"{episodes[t('peak_score')].max():.2f}" if len(episodes) > 0 else "N/A")
-                else:
-                    st.success(t('no_episodes'))
+                            if not before_df.empty and not after_df.empty:
+                                total_change = 0
+                                percent_changes = []
+                                
+                                for i in range(1, num_animals + 1):
+                                    animal_col = f'{animal_type}_{i}'
+                                    if animal_col in before_df.columns:
+                                        try:
+                                            before_weight = float(before_df.iloc[0][animal_col])
+                                            after_weight = float(after_df.iloc[0][animal_col])
+                                            change = after_weight - before_weight
+                                            percent_change = (change / before_weight) * 100
+                                            total_change += change
+                                            percent_changes.append(percent_change)
+                                        except (ValueError, TypeError):
+                                            continue
+                                
+                                if percent_changes:
+                                    mean_change = total_change / len(percent_changes)
+                                    mean_percent = np.mean(percent_changes)
+                                    
+                                    status = t('weight_loss') if mean_change < 0 else (t('weight_gain') if mean_change > 0 else t('no_change'))
+                                    
+                                    weight_change_data.append({
+                                        t('group'): exp,
+                                        t('is_comparison'): '✓' if exp == comp_group else '',
+                                        f"{t('mean_weight')} {t('change_g')}": f"{mean_change:.2f}",
+                                        f"{t('mean_weight')} {t('percent_change')}": f"{mean_percent:.2f}%",
+                                        t('status'): status
+                                    })
+                    
+                    # Display weight change summary
+                    if weight_change_data:
+                        st.markdown(f"#### {t('group_summary')}")
+                        weight_summary_df = pd.DataFrame(weight_change_data)
+                        st.dataframe(
+                            weight_summary_df,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                t('is_comparison'): st.column_config.TextColumn(t('comparison_group'), width="small")
+                            }
+                        )
                 
-                # NEW: Comparative visualization for ALL modes
+                else:
+                    # Original code for other modes
+                    # Collect all abnormal episodes across groups
+                    all_abnormal_episodes = {}
+                    comparison_data = []
+                    
+                    # Get animal info
+                    animal_type = project.get('animal_type', 'mouse')
+                    if animal_type == 'custom':
+                        animal_type = project.get('custom_animal_name', 'animal')
+                    num_animals = project.get('num_animals', 8)
+                    
+                    # Identify comparison group
+                    comp_group = None
+                    if st.session_state.active_project in st.session_state.comparison_groups:
+                        comp_groups = st.session_state.comparison_groups[st.session_state.active_project]
+                        if comp_groups and comp_groups[0] in selected_for_viz:
+                            comp_group = comp_groups[0]
+                    
+                    # Analyze each group
+                    for exp in selected_for_viz:
+                        worksheet_key = f"worksheet_{exp}_{mode_eng}"
+                        if worksheet_key in st.session_state:
+                            df = st.session_state[worksheet_key]
+                            
+                            # Get abnormal episodes
+                            episodes_df = process_data_with_episodes(df, mode_eng, animal_type, num_animals)
+                            if not episodes_df.empty:
+                                all_abnormal_episodes[exp] = episodes_df
+                            
+                            # Collect comparison data
+                            group_data = {
+                                t('group'): exp,
+                                t('is_comparison'): '✓' if exp == comp_group else '',
+                                t('total_episodes'): len(episodes_df) if not episodes_df.empty else 0,
+                                t('affected_obs'): ', '.join(episodes_df[t('observation')].unique()) if not episodes_df.empty else t('none')
+                            }
+                            comparison_data.append(group_data)
+                    
+                    # Display comparison summary
+                    st.markdown(f"#### {t('group_summary')}")
+                    comparison_df = pd.DataFrame(comparison_data)
+                    st.dataframe(
+                        comparison_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            t('is_comparison'): st.column_config.TextColumn(t('comparison_group'), width="small")
+                        }
+                    )
+                    
+                    # Display detailed abnormal episodes by group
+                    st.markdown(f"#### {t('episodes_by_group')}")
+                    
+                    if all_abnormal_episodes:
+                        # Create tabs for each group with episodes
+                        tabs = st.tabs([f"{group} ({len(episodes)})" for group, episodes in all_abnormal_episodes.items()])
+                        
+                        for i, (group, episodes) in enumerate(all_abnormal_episodes.items()):
+                            with tabs[i]:
+                                if group == comp_group:
+                                    st.info(t('is_comparison'))
+                                
+                                # Add group name to episodes
+                                episodes[t('group')] = group
+                                
+                                # Display episodes
+                                st.dataframe(
+                                    episodes[[t('observation'), t('onset_time'), t('offset_time'), t('duration'), t('peak_score')]],
+                                    use_container_width=True,
+                                    hide_index=True
+                                )
+                                
+                                # Summary statistics for this group
+                                st.markdown(f"**{t('summary')}**")
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric(t('total_episodes'), len(episodes))
+                                with col2:
+                                    st.metric(t('avg_duration'), f"{episodes[t('duration')].mean():.1f} min" if len(episodes) > 0 else "N/A")
+                                with col3:
+                                    if mode_eng in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
+                                        st.metric(t('max_peak'), episodes[t('peak_score')].max() if len(episodes) > 0 else "N/A")
+                                    else:
+                                        st.metric(t('max_peak'), f"{episodes[t('peak_score')].max():.2f}" if len(episodes) > 0 else "N/A")
+                    else:
+                        st.success(t('no_episodes'))
+                
+                # Comparative visualization for ALL modes
                 st.markdown(f"#### {t('comparative_viz')}")
                 
                 # Create plot for the current mode
@@ -2109,29 +2375,42 @@ else:
                     f"-" * 50
                 ]
                 
-                # Add group summaries
-                for group_data in comparison_data:
-                    report_lines.append(f"\n{t('group')}: {group_data[t('group')]}")
-                    if group_data[t('is_comparison')]:
-                        report_lines.append(f"({t('comparison_group').upper()})")
-                    report_lines.append(f"{t('total_episodes')}: {group_data[t('total_episodes')]}")
-                    report_lines.append(f"{t('affected_obs')}: {group_data[t('affected_obs')]}")
-                
-                # Add detailed episodes
-                if all_abnormal_episodes:
-                    report_lines.append(f"\n\n{t('detailed_episodes').upper()}")
-                    report_lines.append(f"=" * 50)
+                # Add mode-specific content
+                if mode_eng == "Body Weight":
+                    # Add weight change summaries
+                    for group_data in weight_change_data:
+                        report_lines.append(f"\n{t('group')}: {group_data[t('group')]}")
+                        if group_data[t('is_comparison')]:
+                            report_lines.append(f"({t('comparison_group').upper()})")
+                        weight_change_key = f"{t('mean_weight')} {t('change_g')}"
+                        percent_change_key = f"{t('mean_weight')} {t('percent_change')}"
+                        report_lines.append(f"{t('mean_weight')} {t('change_g')}: {group_data[weight_change_key]}")
+                        report_lines.append(f"{t('mean_weight')} {t('percent_change')}: {group_data[percent_change_key]}")
+                        report_lines.append(f"{t('status')}: {group_data[t('status')]}")
+                else:
+                    # Add group summaries for other modes
+                    for group_data in comparison_data:
+                        report_lines.append(f"\n{t('group')}: {group_data[t('group')]}")
+                        if group_data[t('is_comparison')]:
+                            report_lines.append(f"({t('comparison_group').upper()})")
+                        report_lines.append(f"{t('total_episodes')}: {group_data[t('total_episodes')]}")
+                        report_lines.append(f"{t('affected_obs')}: {group_data[t('affected_obs')]}")
                     
-                    for group, episodes in all_abnormal_episodes.items():
-                        report_lines.append(f"\n{group}:")
-                        report_lines.append(f"-" * 30)
-                        for _, episode in episodes.iterrows():
-                            report_lines.append(f"  {t('observation')}: {episode[t('observation')]}")
-                            report_lines.append(f"  {t('onset_time')}: {episode[t('onset_time')]} min")
-                            report_lines.append(f"  {t('offset_time')}: {episode[t('offset_time')]} min")
-                            report_lines.append(f"  {t('duration')}: {episode[t('duration')]} min")
-                            report_lines.append(f"  {t('peak_score')}: {episode[t('peak_score')]}")
-                            report_lines.append("")
+                    # Add detailed episodes if available
+                    if 'all_abnormal_episodes' in locals() and all_abnormal_episodes:
+                        report_lines.append(f"\n\n{t('detailed_episodes').upper()}")
+                        report_lines.append(f"=" * 50)
+                        
+                        for group, episodes in all_abnormal_episodes.items():
+                            report_lines.append(f"\n{group}:")
+                            report_lines.append(f"-" * 30)
+                            for _, episode in episodes.iterrows():
+                                report_lines.append(f"  {t('observation')}: {episode[t('observation')]}")
+                                report_lines.append(f"  {t('onset_time')}: {episode[t('onset_time')]} min")
+                                report_lines.append(f"  {t('offset_time')}: {episode[t('offset_time')]} min")
+                                report_lines.append(f"  {t('duration')}: {episode[t('duration')]} min")
+                                report_lines.append(f"  {t('peak_score')}: {episode[t('peak_score')]}")
+                                report_lines.append("")
                 
                 report_text = "\n".join(report_lines)
                 
@@ -2160,25 +2439,32 @@ if st.session_state.language == 'zh':
 - **指定对照组**作为参考
 - **一键为所有组的所有模式填充随机数据**
 - 为具有可自定义组大小的单个动物输入数据
+- **体重模式**：记录实验前后的体重，自动计算变化
+- **一般行为模式**：现在包括全面的健康状态观察
 - **综合报告**所有组的异常参数
 - **跟踪所有异常事件的起始和结束时间**
 - **视觉比较组**，突出显示对照组
 - **为所有分析模式生成图表**，支持下载
   - **一般行为**：在选定时间点比较组的条形图
   - **体温**：显示温度随时间变化趋势的折线图
+  - **体重**：在单个图表中显示实验前后体重对比和变化百分比
   - **自主神经/反射/惊厥**：显示每种行为异常动物百分比随时间变化的折线图
 - 导出包含所有异常事件的详细报告
 - **完整的中文界面支持**
 
 **评分阈值：**
-- **一般行为**：正常：2-6，异常：<2 或 >6
+- **一般行为**：正常：2-6，异常：<2 或 >6（用于健康状况观察）
 - **自主神经功能**：点击单元格在正常/异常之间切换
 - **反射能力**：点击单元格在正常/异常之间切换
 - **惊厥行为**：点击单元格在正常/异常之间切换
 - **体温**：正常：36-38°C，异常：<36°C 或 >38°C
+- **体重**：记录实验前后数值，自动计算变化和百分比
 
 **提示：**
+- 一般行为现在包括健康状态观察（探索、理毛、警觉性、状态等）
+- 对于严重状况（状态不佳、濒死、死亡），使用8分或更高分数
 - 对于自主神经、反射和惊厥模式：只需点击任何单元格即可在正常（默认）和异常（红色）之间切换
+- 体重模式在单个综合图表中显示体重变化及百分比变化
 - 折线图显示体温、自主神经、反射和惊厥模式的行为趋势
 - 选择要在折线图中显示的组以便更好地比较
 - 在项目创建时创建多个组以提高效率
@@ -2196,25 +2482,32 @@ This enhanced interactive dashboard allows you to:
 - **Designate a comparison/control group** for reference
 - **Fill ALL groups across ALL modes with random data** with one click
 - Enter data for individual animals with customizable group sizes
+- **Body Weight mode**: Record weights before and after experiment with automatic change calculations
+- **General Behavior mode**: Now includes comprehensive health status observations
 - **Comprehensive reporting** of abnormal parameters across all groups
 - **Track onset and offset times** for all abnormal episodes
 - **Compare groups visually** with highlighted comparison group
 - **Generate plots for ALL analysis modes** with download capability
   - **General Behavior**: Bar charts comparing groups at selected time points
   - **Body Temperature**: Line charts showing temperature trends over time
+  - **Body Weight**: Single comprehensive chart showing before/after weights and percentage changes
   - **Autonomic/Reflex/Convulsive**: Line charts showing percentage of abnormal animals for each behavior over time
 - Export detailed reports with all abnormal episodes
 - **Full Chinese language support** with language switcher
 
 **Scoring Thresholds:**
-- **General Behavior**: Normal: 2-6, Abnormal: <2 or >6
+- **General Behavior**: Normal: 2-6, Abnormal: <2 or >6 (for health condition observations)
 - **Autonomic Functions**: Click cells to toggle between Normal/Abnormal
 - **Reflex Capabilities**: Click cells to toggle between Normal/Abnormal
 - **Convulsive Behaviors**: Click cells to toggle between Normal/Abnormal
 - **Body Temperature**: Normal: 36-38°C, Abnormal: <36°C or >38°C
+- **Body Weight**: Records before/after values and calculates changes automatically
 
 **Tips:**
+- General Behavior now includes health status observations (exploration, grooming, alertness, condition, etc.)
+- For severe conditions (bad condition, moribund, dead), use scores of 8 or higher
 - For Autonomic, Reflex, and Convulsive modes: Simply click any cell to toggle between Normal (default) and Abnormal (red)
+- Body Weight mode shows weight changes in a single comprehensive chart with percentage changes
 - Line charts show behavior trends over time for Body Temperature, Autonomic, Reflex, and Convulsive modes
 - Select which groups to display in line charts for better comparison
 - Create multiple groups at project creation for efficient setup
