@@ -1,0 +1,22 @@
+name: fob_dashboard
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - streamlit
+  - pandas
+  - numpy
+  - matplotlib
+  - seaborn
+  - boto3
+  - scikit-learn
+  - openpyxl  # For Excel support
+  - xlsxwriter  # For Excel export
+  - pyarrow  # For pandas performance
+  - pip
+  - pip:
+      - python-dotenv
+      - streamlit-authenticator
+      - uuid
+      - python-multipart

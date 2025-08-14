@@ -382,42 +382,34 @@ def save_project_state(username, project_data):
         st.error(f"Debug info: {traceback.format_exc()}")
         return False
 
-def load_project_state(username, project_id=None):
-    """Load project state from S3 for a specific project"""
+def load_project_state(username):
+    """Load project state from S3"""
     s3_client = get_s3_client()
     if not s3_client:
         st.error("Cannot load: S3 client not available")
         return None
     
     try:
-        # If no specific project_id is provided, return None (this would usually be handled when the user selects a project)
-        if not project_id:
-            st.error("No project selected")
-            return None
-
-        # The key for the selected project state
-        project_key = f"{username}/{project_id}/project_state.json"
+        file_key = f"{get_user_folder(username)}/projects/project_state.pkl"
         
         st.info("📥 Loading project state from cloud...")
-        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=project_key)
+        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=file_key)
         
         metadata = response.get('Metadata', {})
         if metadata.get('save_time'):
             st.info(f"Loading state saved at: {metadata.get('save_time')}")
         
-        # Assuming the project data is stored as JSON
-        project_data = json.loads(response['Body'].read().decode('utf-8'))
-        
-        if not isinstance(project_data, dict):
+        data = pickle.loads(response['Body'].read())
+        if not isinstance(data, dict):
             st.error("Invalid project data format")
             return None
             
         st.success("✅ Project state loaded successfully!")
-        return project_data
+        return data
         
     except ClientError as e:
         if e.response['Error']['Code'] == 'NoSuchKey':
-            st.info(f"No saved project state found for project: {project_id} in cloud")
+            st.info("No saved project state found in cloud")
             return None
         else:
             st.error(f"❌ Error loading project state: {str(e)}")
@@ -427,7 +419,6 @@ def load_project_state(username, project_id=None):
         import traceback
         st.error(f"Debug info: {traceback.format_exc()}")
         return None
-
 
 def list_user_files(username, file_type="figures", project_name=None):
     """List user's files from S3 within a project folder"""
@@ -489,7 +480,7 @@ configure_chinese_fonts()
 # Language translations
 TRANSLATIONS = {
     'en': {
-        'page_title': 'FOB Test',
+        'page_title': '📊 FOB Test',
         'main_title': 'FOB Test',
         'main_subtitle': 'Visualize and compare Functional Observational Battery (FOB) test results',
         'language': 'Language',
@@ -506,16 +497,16 @@ TRANSLATIONS = {
         'saved_data': 'Saved Data',
         'download': 'Download',
         'delete': 'Delete',
-        'save_to_cloud': 'Save to Cloud',
-        'load_from_cloud': 'Load from Cloud',
-        'save_plot_to_cloud': 'Save Plot to Cloud',
-        'save_data_to_cloud': 'Save Data to Cloud',
+        'save_to_cloud': '☁️ Save to Cloud',
+        'load_from_cloud': '☁️ Load from Cloud',
+        'save_plot_to_cloud': '☁️ Save Plot to Cloud',
+        'save_data_to_cloud': '☁️ Save Data to Cloud',
         'enter_name': 'Enter name (optional):',
         'plot_name': 'Plot name (optional):',
         'data_name': 'Data file name (optional):',
         'export_options': 'Export Options:',
-        'create_project': 'Create New Project',
-        'configure_project': 'Configure New Project',
+        'create_project': '🆕 Create New Project',
+        'configure_project': '📋 Configure New Project',
         'project_name': 'Project Name',
         'animal_type': 'Animal Type',
         'mouse': 'Mouse',
@@ -524,8 +515,8 @@ TRANSLATIONS = {
         'custom_animal_name': 'Custom Animal Name',
         'animals_per_group': 'Number of animals per group',
         'num_groups': 'Number of groups to create',
-        'create': 'Create Project',
-        'cancel': 'Cancel',
+        'create': '✅ Create Project',
+        'cancel': '❌ Cancel',
         'select_mode': 'Select Analysis Mode',
         'choose_mode': 'Choose mode:',
         'general_behavior': 'General Behavior',
@@ -537,51 +528,51 @@ TRANSLATIONS = {
         'experiment_groups': 'Experiment Groups',
         'select_group_edit': 'Select Group to Edit',
         'data_worksheet': 'Data Entry Worksheet',
-        'manual_save': 'Edit with Save Button',
-        'auto_save': 'Auto-Save Mode',
-        'save_changes': 'Save Changes',
-        'fill_random': 'Fill Random Data',
-        'fill_all_random': 'Fill ALL Groups with Random Data',
-        'add_timestep': 'Add',
-        'reset': 'Reset',
-        'export_csv': 'Export Worksheet as CSV',
-        'mean_scores': 'Mean Scores Summary',
-        'weight_summary': 'Weight Change Summary',
+        'manual_save': '📝 Edit with Save Button',
+        'auto_save': '💾 Auto-Save Mode',
+        'save_changes': '💾 Save Changes',
+        'fill_random': '🎲 Fill Random Data',
+        'fill_all_random': '🎲 Fill ALL Groups with Random Data',
+        'add_timestep': '⏱️ Add',
+        'reset': '🔄 Reset',
+        'export_csv': '📥 Export Worksheet as CSV',
+        'mean_scores': '📊 Mean Scores Summary',
+        'weight_summary': '⚖️ Weight Change Summary',
         'filter_time': 'Filter by time points:',
         'time': 'Time',
         'observation': 'Observation',
         'mean_score': 'Mean Score',
         'status': 'Status',
-        'normal': 'Normal',
-        'abnormal': 'Abnormal',
-        'abnormal_episodes': 'Abnormal Episodes (Onset/Offset)',
+        'normal': '🟢 Normal',
+        'abnormal': '🔴 Abnormal',
+        'abnormal_episodes': '🚨 Abnormal Episodes (Onset/Offset)',
         'onset_time': 'Onset Time',
         'offset_time': 'Offset Time',
         'duration': 'Duration',
         'peak_score': 'Peak Score',
         'no_abnormal': 'No abnormal episodes detected',
-        'comparison_group': 'Select Comparison Group',
+        'comparison_group': '🏆 Select Comparison Group',
         'set_comparison': 'Set as Comparison Group',
-        'is_comparison': 'This is a COMPARISON GROUP',
+        'is_comparison': '🏆 This is a COMPARISON GROUP',
         'data_analysis': 'Data Analysis & Reporting',
         'select_analyze': 'Select groups to analyze',
         'select_all': 'Select All',
-        'comparative_report': 'Comparative Analysis Report',
-        'group_summary': 'Group Summary',
+        'comparative_report': '📊 Comparative Analysis Report',
+        'group_summary': '📋 Group Summary',
         'group': 'Group',
         'total_episodes': 'Total Abnormal Episodes',
         'affected_obs': 'Affected Observations',
         'none': 'None',
-        'episodes_by_group': 'Abnormal Episodes by Group',
+        'episodes_by_group': '🚨 Abnormal Episodes by Group',
         'summary': 'Summary:',
         'avg_duration': 'Avg Duration',
         'max_peak': 'Max Peak Score',
-        'no_episodes': 'No abnormal episodes detected in any group!',
-        'comparative_viz': 'Comparative Visualization',
+        'no_episodes': '✅ No abnormal episodes detected in any group!',
+        'comparative_viz': '📈 Comparative Visualization',
         'select_time_compare': 'Select Time Point for Comparison',
-        'export_report': 'Export Report',
-        'download_report': 'Download Complete Report',
-        'download_templates': 'Download Data Templates',
+        'export_report': '💾 Export Report',
+        'download_report': '📄 Download Complete Report',
+        'download_templates': '📝 Download Data Templates',
         'template_type': 'Select Template Type',
         'csv_template': 'CSV Template',
         'excel_template': 'Excel Template',
@@ -589,9 +580,9 @@ TRANSLATIONS = {
         'download_excel_template': 'Download Excel Template',
         'about_title': 'About FOB Test',
         'tips': 'Tips:',
-        'unsaved_changes': 'You have unsaved changes!',
-        'changes_saved': 'Changes saved successfully!',
-        'auto_saved': 'Auto-saved at',
+        'unsaved_changes': '⚠️ You have unsaved changes!',
+        'changes_saved': '✅ Changes saved successfully!',
+        'auto_saved': '✅ Auto-saved at',
         'add_new_timestep': 'Add new timestep:',
         'next_timestep': 'Next timestep (min)',
         'valid': 'Valid',
@@ -602,17 +593,17 @@ TRANSLATIONS = {
         'analysis_mode': 'Analysis Mode',
         'total_groups': 'Total Groups Analyzed',
         'not_set': 'Not set',
-        'start_instruction': 'Click \'Create New Project\' to get started',
-        'edit_tip': 'Choose your editing mode: Use \'Edit with Save Button\' to batch your changes, or \'Auto-Save Mode\' for instant saves.',
+        'start_instruction': '👆 Click \'Create New Project\' to get started',
+        'edit_tip': '💡 **Choose your editing mode**: Use \'Edit with Save Button\' to batch your changes, or \'Auto-Save Mode\' for instant saves.',
         'no_groups': 'No groups created yet',
-        'filling_all': 'Filling all worksheets with random data...',
-        'fill_complete': 'All worksheets filled with random data!',
+        'filling_all': '⏳ Filling all worksheets with random data...',
+        'fill_complete': '✅ All worksheets filled with random data!',
         'confirm_fill_all': 'This will fill random data for ALL groups across ALL analysis modes. Continue?',
         'yes': 'Yes',
         'no': 'No',
-        'download_plot': 'Download Plot',
+        'download_plot': '📥 Download Plot',
         'abnormal_count': 'Abnormal Count',
-        'binary_instruction': 'Instructions: Click on any cell to toggle between Normal (default) and Abnormal (red).',
+        'binary_instruction': '🔍 **Instructions**: Click on any cell to toggle between Normal (default) and Abnormal (red).',
         'percentage_abnormal': '% Abnormal',
         'groups_to_plot': 'Groups to plot:',
         'select_groups_chart': 'Select groups to display in the chart:',
@@ -622,7 +613,7 @@ TRANSLATIONS = {
         'weight_change': 'Weight Change',
         'weight_g': 'Weight (g)',
         'percent_change': '% Change',
-        'weight_instruction': 'Instructions: Enter the weight (in grams) for each animal before and after the experiment.',
+        'weight_instruction': '⚖️ **Instructions**: Enter the weight (in grams) for each animal before and after the experiment.',
         'mean_weight': 'Mean Weight',
         'weight_loss': 'Weight Loss',
         'weight_gain': 'Weight Gain',
@@ -633,7 +624,7 @@ TRANSLATIONS = {
         'final_weight': 'Final Weight'
     },
     'zh': {
-        'page_title': 'FOB测试',
+        'page_title': '📊 FOB测试',
         'main_title': 'FOB测试',
         'main_subtitle': '可视化并比较功能观察电池（FOB）测试结果',
         'language': '语言',
@@ -650,16 +641,16 @@ TRANSLATIONS = {
         'saved_data': '保存的数据',
         'download': '下载',
         'delete': '删除',
-        'save_to_cloud': '保存到云端',
-        'load_from_cloud': '从云端加载',
-        'save_plot_to_cloud': '保存图表到云端',
-        'save_data_to_cloud': '保存数据到云端',
+        'save_to_cloud': '☁️ 保存到云端',
+        'load_from_cloud': '☁️ 从云端加载',
+        'save_plot_to_cloud': '☁️ 保存图表到云端',
+        'save_data_to_cloud': '☁️ 保存数据到云端',
         'enter_name': '输入名称（可选）：',
         'plot_name': '图表名称（可选）：',
         'data_name': '数据文件名称（可选）：',
         'export_options': '导出选项：',
-        'create_project': '创建新项目',
-        'configure_project': '配置新项目',
+        'create_project': '🆕 创建新项目',
+        'configure_project': '📋 配置新项目',
         'project_name': '项目名称',
         'animal_type': '动物类型',
         'mouse': '小鼠',
@@ -668,8 +659,8 @@ TRANSLATIONS = {
         'custom_animal_name': '自定义动物名称',
         'animals_per_group': '每组动物数量',
         'num_groups': '创建组数',
-        'create': '创建项目',
-        'cancel': '取消',
+        'create': '✅ 创建项目',
+        'cancel': '❌ 取消',
         'select_mode': '选择分析模式',
         'choose_mode': '选择模式：',
         'general_behavior': '一般行为',
@@ -681,51 +672,51 @@ TRANSLATIONS = {
         'experiment_groups': '实验组',
         'select_group_edit': '选择要编辑的组',
         'data_worksheet': '数据录入工作表',
-        'manual_save': '编辑后保存',
-        'auto_save': '自动保存模式',
-        'save_changes': '保存更改',
-        'fill_random': '填充随机数据',
-        'fill_all_random': '为所有组填充随机数据',
-        'add_timestep': '添加',
-        'reset': '重置',
-        'export_csv': '导出工作表为CSV',
-        'mean_scores': '平均分数汇总',
-        'weight_summary': '体重变化汇总',
+        'manual_save': '📝 编辑后保存',
+        'auto_save': '💾 自动保存模式',
+        'save_changes': '💾 保存更改',
+        'fill_random': '🎲 填充随机数据',
+        'fill_all_random': '🎲 为所有组填充随机数据',
+        'add_timestep': '⏱️ 添加',
+        'reset': '🔄 重置',
+        'export_csv': '📥 导出工作表为CSV',
+        'mean_scores': '📊 平均分数汇总',
+        'weight_summary': '⚖️ 体重变化汇总',
         'filter_time': '按时间点筛选：',
         'time': '时间',
         'observation': '观察项',
         'mean_score': '平均分数',
         'status': '状态',
-        'normal': '正常',
-        'abnormal': '异常',
-        'abnormal_episodes': '异常事件（起始/结束）',
+        'normal': '🟢 正常',
+        'abnormal': '🔴 异常',
+        'abnormal_episodes': '🚨 异常事件（起始/结束）',
         'onset_time': '起始时间',
         'offset_time': '结束时间',
         'duration': '持续时间',
         'peak_score': '峰值分数',
         'no_abnormal': '未检测到异常事件',
-        'comparison_group': '选择对照组',
+        'comparison_group': '🏆 选择对照组',
         'set_comparison': '设为对照组',
-        'is_comparison': '这是对照组',
+        'is_comparison': '🏆 这是对照组',
         'data_analysis': '数据分析与报告',
         'select_analyze': '选择要分析的组',
         'select_all': '全选',
-        'comparative_report': '对比分析报告',
-        'group_summary': '组别汇总',
+        'comparative_report': '📊 对比分析报告',
+        'group_summary': '📋 组别汇总',
         'group': '组别',
         'total_episodes': '异常事件总数',
         'affected_obs': '受影响的观察项',
         'none': '无',
-        'episodes_by_group': '各组异常事件',
+        'episodes_by_group': '🚨 各组异常事件',
         'summary': '汇总：',
         'avg_duration': '平均持续时间',
         'max_peak': '最高峰值分数',
-        'no_episodes': '所有组均未检测到异常事件！',
-        'comparative_viz': '对比可视化',
+        'no_episodes': '✅ 所有组均未检测到异常事件！',
+        'comparative_viz': '📈 对比可视化',
         'select_time_compare': '选择比较时间点',
-        'export_report': '导出报告',
-        'download_report': '下载完整报告',
-        'download_templates': '下载数据模板',
+        'export_report': '💾 导出报告',
+        'download_report': '📄 下载完整报告',
+        'download_templates': '📝 下载数据模板',
         'template_type': '选择模板类型',
         'csv_template': 'CSV模板',
         'excel_template': 'Excel模板',
@@ -733,9 +724,9 @@ TRANSLATIONS = {
         'download_excel_template': '下载Excel模板',
         'about_title': '关于FOB测试',
         'tips': '提示：',
-        'unsaved_changes': '您有未保存的更改！',
-        'changes_saved': '更改已成功保存！',
-        'auto_saved': '自动保存于',
+        'unsaved_changes': '⚠️ 您有未保存的更改！',
+        'changes_saved': '✅ 更改已成功保存！',
+        'auto_saved': '✅ 自动保存于',
         'add_new_timestep': '添加新时间点：',
         'next_timestep': '下一个时间点（分钟）',
         'valid': '有效',
@@ -746,17 +737,17 @@ TRANSLATIONS = {
         'analysis_mode': '分析模式',
         'total_groups': '分析组总数',
         'not_set': '未设置',
-        'start_instruction': '点击"创建新项目"开始',
-        'edit_tip': '选择编辑模式：使用"编辑后保存"批量更改，或使用"自动保存模式"即时保存。',
+        'start_instruction': '👆 点击"创建新项目"开始',
+        'edit_tip': '💡 **选择编辑模式**：使用"编辑后保存"批量更改，或使用"自动保存模式"即时保存。',
         'no_groups': '尚未创建组',
-        'filling_all': '正在为所有工作表填充随机数据...',
-        'fill_complete': '所有工作表已填充随机数据！',
+        'filling_all': '⏳ 正在为所有工作表填充随机数据...',
+        'fill_complete': '✅ 所有工作表已填充随机数据！',
         'confirm_fill_all': '这将为所有分析模式下的所有组填充随机数据。是否继续？',
         'yes': '是',
         'no': '否',
-        'download_plot': '下载图表',
+        'download_plot': '📥 下载图表',
         'abnormal_count': '异常计数',
-        'binary_instruction': '说明：点击任意单元格在正常（默认）和异常（红色）之间切换。',
+        'binary_instruction': '🔍 **说明**：点击任意单元格在正常（默认）和异常（红色）之间切换。',
         'percentage_abnormal': '异常百分比',
         'groups_to_plot': '要绘制的组：',
         'select_groups_chart': '选择要在图表中显示的组：',
@@ -766,7 +757,7 @@ TRANSLATIONS = {
         'weight_change': '体重变化',
         'weight_g': '体重 (克)',
         'percent_change': '变化百分比',
-        'weight_instruction': '说明：输入每只动物实验前和实验后的体重（以克为单位）。',
+        'weight_instruction': '⚖️ **说明**：输入每只动物实验前和实验后的体重（以克为单位）。',
         'mean_weight': '平均体重',
         'weight_loss': '体重减轻',
         'weight_gain': '体重增加',
@@ -777,7 +768,6 @@ TRANSLATIONS = {
         'final_weight': '最终体重'
     }
 }
-
 
 # Observation translations
 OBSERVATION_TRANSLATIONS = {
@@ -1101,9 +1091,9 @@ def save_data_to_cloud_with_name(df, username, data_name, project_name=None):
         key = save_dataframe_to_s3(df, username, data_name, project_name=proj)
         
     if key:
-        st.success(f"Data '{data_name}' saved to cloud!")
+        st.success(f"✅ Data '{data_name}' saved to cloud!")
         st.info(f"📍 Saved as: {key}")
-        st.info(f"Data shape: {len(df)} rows × {len(df.columns)} columns")
+        st.info(f"📊 Data shape: {len(df)} rows × {len(df.columns)} columns")
 
         # 👇 Print the directory (prefix)
         folder = key.rsplit('/', 1)[0] + '/'
@@ -1264,7 +1254,7 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
         return pd.DataFrame(data)
 
 def fill_all_worksheets_with_random_data():
-    """Fill all worksheets for all groups and all modes with random data without confirmation"""
+    """Fill all worksheets for all groups and all modes with random data"""
     if st.session_state.active_project is None:
         st.error("No active project")
         return
@@ -1346,7 +1336,6 @@ def fill_all_worksheets_with_random_data():
     progress_bar.empty()
     
     return filled_count
-
 
 def process_data_with_episodes(df, mode, animal_type="mouse", num_animals=8):
     """Process data and track onset/offset of abnormal episodes"""
@@ -2342,38 +2331,22 @@ def show_dashboard():
                 'worksheets': {k: v for k, v in st.session_state.items() if k.startswith('worksheet_')},
                 'comparison_groups': st.session_state.get('comparison_groups', {})
             }
-
-            # Loop through all projects to save each one separately
-            for project_id, project in st.session_state.projects.items():
-                project_data['active_project'] = project_id  # Save only the data of the active project
-
-                if save_project_state(st.session_state.username, project_data):
-                    st.success(f"Project '{project['name']}' state saved to cloud!")
-
-# When loading from the cloud
+            if save_project_state(st.session_state.username, project_data):
+                st.success("Project state saved to cloud!")
+        
         if st.button(t('load_from_cloud'), use_container_width=True):
-            # List available projects for the user to choose from
-            available_projects = list(st.session_state.projects.keys())  # Get the keys of all projects
-            selected_project = st.selectbox('Select a project to load', available_projects)
-
-            saved_data = load_project_state(st.session_state.username, selected_project)
+            saved_data = load_project_state(st.session_state.username)
             if saved_data:
-                # Load the selected project state
                 st.session_state.projects = saved_data.get('projects', {})
-                st.session_state.active_project = selected_project  # Set the active project
+                st.session_state.active_project = saved_data.get('active_project', None)
                 st.session_state.experiments = saved_data.get('experiments', {})
                 st.session_state.comparison_groups = saved_data.get('comparison_groups', {})
-
-                # Load worksheets specific to the selected project
                 for key, value in saved_data.get('worksheets', {}).items():
-                    if key.startswith(f"worksheet_{selected_project}_"):
-                        st.session_state[key] = value
-
-                st.success(f"Project '{selected_project}' state loaded from cloud!")
+                    st.session_state[key] = value
+                st.success("Project state loaded from cloud!")
+                st.rerun()
             else:
-                st.info("No saved state found for the selected project")
-
-
+                st.info("No saved state found")
         
         st.markdown("---")
         st.markdown("### 📁 " + t('my_files'))
@@ -2504,18 +2477,31 @@ def show_dashboard():
                 help="Download Excel template for experiment data"
             )
     
- # Global fill random data button
+    # Global fill random data button
     if st.session_state.active_project is not None:
         project_groups = [exp for exp in st.session_state.experiments.keys() 
-                        if exp.startswith(st.session_state.projects[st.session_state.active_project]['name'])]
+                         if exp.startswith(st.session_state.projects[st.session_state.active_project]['name'])]
         
         if project_groups:
-            # When the button is clicked, directly fill all random data without confirmation
             if st.button(t('fill_all_random'), use_container_width=True, type="secondary"):
-                filled_count = fill_all_worksheets_with_random_data()
-                st.success(t('fill_complete'))
-                st.rerun()
+                if 'confirm_fill_all' not in st.session_state:
+                    st.session_state.confirm_fill_all = True
+                    st.rerun()
 
+            if 'confirm_fill_all' in st.session_state and st.session_state.confirm_fill_all:
+                st.warning(t('confirm_fill_all'))
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(t('yes'), use_container_width=True):
+                        filled_count = fill_all_worksheets_with_random_data()
+                        st.success(t('fill_complete'))
+                        del st.session_state.confirm_fill_all
+                        st.rerun()
+                with col2:
+                    if st.button(t('no'), use_container_width=True):
+                        del st.session_state.confirm_fill_all
+                        st.rerun()
+    
     # Project Creation Section
     if st.button(t('create_project'), key="create_project_btn", use_container_width=True, type="primary"):
         st.session_state.show_project_creation = True

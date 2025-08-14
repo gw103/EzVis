@@ -1,4 +1,4 @@
-# main.py
+# dashboard.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -14,450 +14,6 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib import font_manager
 import platform
-import hashlib
-import json
-import boto3
-from botocore.exceptions import ClientError, NoCredentialsError  # <-- include NoCredentialsError
-import pickle
-import hmac
-
-# ====================== AWS CONFIGURATION ======================
-# Set these as environment variables or in Streamlit secrets
-AWS_ACCESS_KEY_ID = st.secrets.get("AWS_ACCESS_KEY_ID", "")
-AWS_SECRET_ACCESS_KEY = st.secrets.get("AWS_SECRET_ACCESS_KEY", "")
-AWS_REGION = st.secrets.get("AWS_REGION", "us-east-2")
-S3_BUCKET_NAME = st.secrets.get("S3_BUCKET_NAME", "fob-dashboard-storage")
-
-# ====================== USER AUTHENTICATION ======================
-def get_user_db_path():
-    """Get path for user database from S3"""
-    return "user_database/users.json"
-
-def load_user_database():
-    """Load user database from S3"""
-    s3_client = get_s3_client()
-    if not s3_client:
-        return {}
-    
-    try:
-        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=get_user_db_path())
-        users = json.loads(response['Body'].read().decode('utf-8'))
-        return users
-    except ClientError as e:
-        if e.response['Error']['Code'] == 'NoSuchKey':
-            return {}
-        else:
-            st.error(f"Error loading user database: {str(e)}")
-            return {}
-
-def save_user_database(users):
-    """Save user database to S3"""
-    s3_client = get_s3_client()
-    if not s3_client:
-        return False
-    
-    try:
-        s3_client.put_object(
-            Bucket=S3_BUCKET_NAME,
-            Key=get_user_db_path(),
-            Body=json.dumps(users).encode('utf-8'),
-            ContentType='application/json'
-        )
-        return True
-    except Exception as e:
-        st.error(f"Error saving user database: {str(e)}")
-        return False
-
-def hash_password(password):
-    """Hash password using SHA256"""
-    return hashlib.sha256(str.encode(password)).hexdigest()
-
-def verify_password(stored_password, provided_password):
-    """Verify a stored password against provided password"""
-    return stored_password == hash_password(provided_password)
-
-def register_user(username, password, email, name):
-    """Register a new user"""
-    users = load_user_database()
-    
-    if username in users:
-        return False, "Username already exists"
-    
-    users[username] = {
-        "password": hash_password(password),
-        "email": email,
-        "name": name,
-        "created_at": datetime.datetime.now().isoformat(),
-        "last_login": None,
-        "projects": []
-    }
-    
-    if save_user_database(users):
-        return True, "Registration successful"
-    return False, "Failed to save user"
-
-def authenticate_user(username, password):
-    """Authenticate user"""
-    users = load_user_database()
-    
-    if username not in users:
-        return False, "Username not found"
-    
-    if verify_password(users[username]["password"], password):
-        users[username]["last_login"] = datetime.datetime.now().isoformat()
-        save_user_database(users)
-        return True, users[username]
-    
-    return False, "Incorrect password"
-
-def check_authentication():
-    """Check if user is authenticated"""
-    if 'authenticated' not in st.session_state:
-        st.session_state.authenticated = False
-    return st.session_state.authenticated
-
-# ====================== S3 CLIENT (single, verified) ======================
-def get_s3_client():
-    """Get S3 client with credentials and verify connection"""
-    try:
-        if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
-            st.error("⚠️ AWS credentials not configured! Please add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to Streamlit secrets.")
-            return None
-            
-        client = boto3.client(
-            's3',
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-            region_name=AWS_REGION
-        )
-        
-        # Ensure bucket exists / is accessible
-        try:
-            client.head_bucket(Bucket=S3_BUCKET_NAME)
-        except ClientError as e:
-            error_code = e.response['Error'].get('Code', '')
-            if error_code in ('404', 'NoSuchBucket'):
-                st.info(f"Creating S3 bucket: {S3_BUCKET_NAME}")
-                try:
-                    if AWS_REGION == 'us-east-1':
-                        client.create_bucket(Bucket=S3_BUCKET_NAME)
-                    else:
-                        client.create_bucket(
-                            Bucket=S3_BUCKET_NAME,
-                            CreateBucketConfiguration={'LocationConstraint': AWS_REGION}
-                        )
-                    st.success(f"✅ Created S3 bucket: {S3_BUCKET_NAME}")
-                except ClientError as create_error:
-                    st.error(f"❌ Failed to create bucket: {str(create_error)}")
-                    return None
-            elif error_code == '403':
-                st.error(f"❌ Access denied to bucket {S3_BUCKET_NAME}. Check your AWS permissions.")
-                return None
-            else:
-                st.error(f"❌ Error accessing bucket: {str(e)}")
-                return None
-                
-        return client
-        
-    except NoCredentialsError:
-        st.error("❌ AWS credentials not found. Please configure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.")
-        return None
-    except Exception as e:
-        st.error(f"❌ Failed to connect to AWS S3: {str(e)}")
-        return None
-
-# ====================== PROJECT HELPERS ======================
-def get_user_folder(username):
-    """Base S3 folder path for the user"""
-    return f"user_data/{username}"
-
-def get_active_project_name():
-    """Safely get the active project's *name* (not the UUID), fallback 'General'."""
-    try:
-        pid = st.session_state.get('active_project')
-        if pid and pid in st.session_state.get('projects', {}):
-            return st.session_state.projects[pid].get('name') or "General"
-    except Exception:
-        pass
-    return "General"
-
-def _sanitize(name: str, default: str):
-    safe = "".join(c for c in (name or "") if c.isalnum() or c in (" ", "-", "_")).strip()
-    return safe or default
-
-# ====================== S3 STORAGE FUNCTIONS (project-scoped) ======================
-def save_figure_to_s3(fig, username, figure_name, project_name=None):
-    """Save matplotlib figure to S3 under user_data/<user>/projects/<project>/figures/"""
-    s3_client = get_s3_client()
-    if not s3_client:
-        st.error("Cannot save: S3 client not available")
-        return None, None
-    
-    try:
-        # Buffer the figure
-        img_buffer = BytesIO()
-        fig.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
-        img_buffer.seek(0)
-        
-        # Paths
-        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        safe_name = _sanitize(figure_name, "plot")
-        proj = _sanitize(project_name or get_active_project_name(), "Project")
-        file_key = f"{get_user_folder(username)}/projects/{proj}/figures/{safe_name}_{timestamp}.png"
-        
-        # Upload
-        st.info("📤 Uploading figure to S3...")
-        s3_client.put_object(
-            Bucket=S3_BUCKET_NAME,
-            Key=file_key,
-            Body=img_buffer.getvalue(),
-            ContentType='image/png',
-            Metadata={
-                'username': username,
-                'figure_name': safe_name,
-                'project': proj,
-                'upload_time': timestamp
-            }
-        )
-        
-        # Verify
-        try:
-            s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=file_key)
-            st.success("✅ Figure saved successfully to cloud!")
-        except ClientError:
-            st.error("⚠️ Upload verification failed")
-            return None, None
-        
-        # Presigned URL
-        try:
-            url = s3_client.generate_presigned_url(
-                'get_object',
-                Params={'Bucket': S3_BUCKET_NAME, 'Key': file_key},
-                ExpiresIn=3600
-            )
-            return url, file_key
-        except ClientError as e:
-            st.warning(f"Could not generate download URL: {str(e)}")
-            return None, file_key
-            
-    except ClientError as e:
-        st.error(f"❌ AWS S3 Error: {str(e)}")
-        return None, None
-    except Exception as e:
-        st.error(f"❌ Error saving figure: {str(e)}")
-        import traceback
-        st.error(f"Debug info: {traceback.format_exc()}")
-        return None, None
-
-def save_dataframe_to_s3(df, username, file_name, project_name=None):
-    """Save dataframe CSV to S3 under user_data/<user>/projects/<project>/data/.
-    On success: shows a 1-hour presigned URL and returns the S3 object key.
-    """
-    s3_client = get_s3_client()
-    if not s3_client:
-        st.error("Cannot save: S3 client not available")
-        return None
-
-    try:
-        # ---- Build CSV in memory
-        csv_buffer = BytesIO()
-        df.to_csv(csv_buffer, index=False)
-        csv_buffer.seek(0)
-
-        # ---- Paths / names
-        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        safe_name = _sanitize(file_name, "data")
-        proj = _sanitize(project_name or get_active_project_name(), "Project")
-        file_key = f"{get_user_folder(username)}/projects/{proj}/data/{safe_name}_{timestamp}.csv"
-        download_filename = f"{safe_name}_{timestamp}.csv"
-
-        # ---- Upload
-        st.info("📤 Uploading data to S3…")
-        s3_client.put_object(
-            Bucket=S3_BUCKET_NAME,
-            Key=file_key,
-            Body=csv_buffer.getvalue(),
-            ContentType="text/csv",
-            ContentDisposition=f'attachment; filename="{download_filename}"',
-            Metadata={
-                "username": username,
-                "file_name": safe_name,
-                "project": proj,
-                "upload_time": timestamp,
-                "rows": str(len(df)),
-                "columns": str(len(df.columns)),
-            },
-        )
-
-        # ---- Verify upload
-        try:
-            response = s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=file_key)
-            file_size = response.get("ContentLength", 0)
-            etag = response.get("ETag", "").strip('"')
-            st.success(f"✅ Data saved successfully to cloud! ({file_size:,} bytes)")
-            st.caption(f"ETag: {etag}")
-
-            # ---- Give a direct download link (1 hour)
-            try:
-                url = s3_client.generate_presigned_url(
-                    "get_object",
-                    Params={"Bucket": S3_BUCKET_NAME, "Key": file_key},
-                    ExpiresIn=3600,
-                )
-                st.markdown(f"📥 **Download now:** [{download_filename}]({url}) — _link valid for 1 hour_")
-            except ClientError as e:
-                st.warning(f"Could not create download link: {e}")
-
-            # (Optional) Show the S3 URI so users can copy it
-            st.code(f"s3://{S3_BUCKET_NAME}/{file_key}", language="bash")
-
-            return file_key
-
-        except ClientError as e:
-            st.error("⚠️ Upload verification failed")
-            st.error(str(e))
-            return None
-
-    except ClientError as e:
-        st.error(f"❌ AWS S3 Error: {str(e)}")
-        return None
-    except Exception as e:
-        st.error(f"❌ Error saving data: {str(e)}")
-        import traceback
-        st.error(f"Debug info: {traceback.format_exc()}")
-        return None
-
-
-def save_project_state(username, project_data):
-    """Save project state (kept user-wide; not per-project file)"""
-    s3_client = get_s3_client()
-    if not s3_client:
-        st.error("Cannot save: S3 client not available")
-        return False
-    
-    try:
-        data_buffer = BytesIO()
-        pickle.dump(project_data, data_buffer)
-        data_buffer.seek(0)
-        
-        file_key = f"{get_user_folder(username)}/projects/project_state.pkl"
-        
-        # Backup any existing
-        backup_key = f"{get_user_folder(username)}/projects/project_state_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pkl"
-        try:
-            s3_client.copy_object(
-                Bucket=S3_BUCKET_NAME,
-                CopySource={'Bucket': S3_BUCKET_NAME, 'Key': file_key},
-                Key=backup_key
-            )
-        except ClientError:
-            pass
-        
-        st.info("📤 Saving project state to cloud...")
-        s3_client.put_object(
-            Bucket=S3_BUCKET_NAME,
-            Key=file_key,
-            Body=data_buffer.getvalue(),
-            ContentType='application/octet-stream',
-            Metadata={
-                'username': username,
-                'save_time': datetime.datetime.now().isoformat(),
-                'projects_count': str(len(project_data.get('projects', {}))),
-                'worksheets_count': str(len(project_data.get('worksheets', {})))
-            }
-        )
-        
-        # Verify
-        try:
-            s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=file_key)
-            st.success("✅ Project state saved successfully!")
-            return True
-        except ClientError:
-            st.error("⚠️ Save verification failed")
-            return False
-            
-    except Exception as e:
-        st.error(f"❌ Error saving project state: {str(e)}")
-        import traceback
-        st.error(f"Debug info: {traceback.format_exc()}")
-        return False
-
-def load_project_state(username, project_id=None):
-    """Load project state from S3 for a specific project"""
-    s3_client = get_s3_client()
-    if not s3_client:
-        st.error("Cannot load: S3 client not available")
-        return None
-    
-    try:
-        # If no specific project_id is provided, return None (this would usually be handled when the user selects a project)
-        if not project_id:
-            st.error("No project selected")
-            return None
-
-        # The key for the selected project state
-        project_key = f"{username}/{project_id}/project_state.json"
-        
-        st.info("📥 Loading project state from cloud...")
-        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=project_key)
-        
-        metadata = response.get('Metadata', {})
-        if metadata.get('save_time'):
-            st.info(f"Loading state saved at: {metadata.get('save_time')}")
-        
-        # Assuming the project data is stored as JSON
-        project_data = json.loads(response['Body'].read().decode('utf-8'))
-        
-        if not isinstance(project_data, dict):
-            st.error("Invalid project data format")
-            return None
-            
-        st.success("✅ Project state loaded successfully!")
-        return project_data
-        
-    except ClientError as e:
-        if e.response['Error']['Code'] == 'NoSuchKey':
-            st.info(f"No saved project state found for project: {project_id} in cloud")
-            return None
-        else:
-            st.error(f"❌ Error loading project state: {str(e)}")
-            return None
-    except Exception as e:
-        st.error(f"❌ Error loading project state: {str(e)}")
-        import traceback
-        st.error(f"Debug info: {traceback.format_exc()}")
-        return None
-
-
-def list_user_files(username, file_type="figures", project_name=None):
-    """List user's files from S3 within a project folder"""
-    s3_client = get_s3_client()
-    if not s3_client:
-        return []
-    
-    try:
-        proj = _sanitize(project_name or get_active_project_name(), "Project")
-        prefix = f"{get_user_folder(username)}/projects/{proj}/{file_type}/"
-        response = s3_client.list_objects_v2(
-            Bucket=S3_BUCKET_NAME,
-            Prefix=prefix
-        )
-        
-        files = []
-        if 'Contents' in response:
-            for obj in response['Contents']:
-                files.append({
-                    'key': obj['Key'],
-                    'name': obj['Key'].split('/')[-1],
-                    'modified': obj['LastModified'],
-                    'size': obj['Size']
-                })
-        return files
-    except Exception as e:
-        st.error(f"Error listing files: {str(e)}")
-        return []
-
-# ====================== DASHBOARD CONFIGURATION ======================
 
 # Configure Chinese fonts
 def configure_chinese_fonts():
@@ -466,9 +22,9 @@ def configure_chinese_fonts():
     
     if system == "Windows":
         chinese_fonts = ['Microsoft YaHei', 'SimHei', 'KaiTi', 'SimSun']
-    elif system == "Darwin":
+    elif system == "Darwin":  # macOS
         chinese_fonts = ['PingFang SC', 'Hiragino Sans GB', 'STHeiti', 'Arial Unicode MS']
-    else:
+    else:  # Linux
         chinese_fonts = ['WenQuanYi Micro Hei', 'DejaVu Sans', 'Liberation Sans']
     
     for font in chinese_fonts:
@@ -476,46 +32,30 @@ def configure_chinese_fonts():
             if font in [f.name for f in font_manager.fontManager.ttflist]:
                 plt.rcParams['font.sans-serif'] = [font] + plt.rcParams['font.sans-serif']
                 plt.rcParams['axes.unicode_minus'] = False
+                print(f"Set Chinese font: {font}")
                 return True
         except:
             continue
     
-    plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans', 'Liberation Sans', 'sans-serif']
-    plt.rcParams['axes.unicode_minus'] = False
-    return True
+    try:
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans', 'Liberation Sans', 'sans-serif']
+        plt.rcParams['axes.unicode_minus'] = False
+        return True
+    except:
+        print("Warning: Cannot configure Chinese fonts")
+        return False
 
 configure_chinese_fonts()
 
-# Language translations
+# Language translations - Updated with Body Weight mode
 TRANSLATIONS = {
     'en': {
-        'page_title': 'FOB Test',
-        'main_title': 'FOB Test',
-        'main_subtitle': 'Visualize and compare Functional Observational Battery (FOB) test results',
+        'page_title': '📊 FOB Test Analysis Dashboard',
+        'main_title': 'FOB Test Analysis Dashboard',
+        'main_subtitle': 'Visualize and compare Functional Observational Battery (FOB) test results across multiple groups',
         'language': 'Language',
-        'login': 'Login',
-        'register': 'Register',
-        'username': 'Username',
-        'password': 'Password',
-        'email': 'Email',
-        'name': 'Full Name',
-        'logout': 'Logout',
-        'welcome': 'Welcome',
-        'my_files': 'My Files',
-        'saved_figures': 'Saved Figures',
-        'saved_data': 'Saved Data',
-        'download': 'Download',
-        'delete': 'Delete',
-        'save_to_cloud': 'Save to Cloud',
-        'load_from_cloud': 'Load from Cloud',
-        'save_plot_to_cloud': 'Save Plot to Cloud',
-        'save_data_to_cloud': 'Save Data to Cloud',
-        'enter_name': 'Enter name (optional):',
-        'plot_name': 'Plot name (optional):',
-        'data_name': 'Data file name (optional):',
-        'export_options': 'Export Options:',
-        'create_project': 'Create New Project',
-        'configure_project': 'Configure New Project',
+        'create_project': '🆕 Create New Project',
+        'configure_project': '📋 Configure New Project',
         'project_name': 'Project Name',
         'animal_type': 'Animal Type',
         'mouse': 'Mouse',
@@ -524,8 +64,8 @@ TRANSLATIONS = {
         'custom_animal_name': 'Custom Animal Name',
         'animals_per_group': 'Number of animals per group',
         'num_groups': 'Number of groups to create',
-        'create': 'Create Project',
-        'cancel': 'Cancel',
+        'create': '✅ Create Project',
+        'cancel': '❌ Cancel',
         'select_mode': 'Select Analysis Mode',
         'choose_mode': 'Choose mode:',
         'general_behavior': 'General Behavior',
@@ -537,82 +77,82 @@ TRANSLATIONS = {
         'experiment_groups': 'Experiment Groups',
         'select_group_edit': 'Select Group to Edit',
         'data_worksheet': 'Data Entry Worksheet',
-        'manual_save': 'Edit with Save Button',
-        'auto_save': 'Auto-Save Mode',
-        'save_changes': 'Save Changes',
-        'fill_random': 'Fill Random Data',
-        'fill_all_random': 'Fill ALL Groups with Random Data',
-        'add_timestep': 'Add',
-        'reset': 'Reset',
-        'export_csv': 'Export Worksheet as CSV',
-        'mean_scores': 'Mean Scores Summary',
-        'weight_summary': 'Weight Change Summary',
+        'manual_save': '📝 Edit with Save Button',
+        'auto_save': '💾 Auto-Save Mode',
+        'save_changes': '💾 Save Changes',
+        'fill_random': '🎲 Fill Random Data',
+        'fill_all_random': '🎲 Fill ALL Groups with Random Data',
+        'add_timestep': '⏱️ Add',
+        'reset': '🔄 Reset',
+        'export_csv': '📥 Export Worksheet as CSV',
+        'mean_scores': '📊 Mean Scores Summary',
+        'weight_summary': '⚖️ Weight Change Summary',
         'filter_time': 'Filter by time points:',
         'time': 'Time',
         'observation': 'Observation',
         'mean_score': 'Mean Score',
         'status': 'Status',
-        'normal': 'Normal',
-        'abnormal': 'Abnormal',
-        'abnormal_episodes': 'Abnormal Episodes (Onset/Offset)',
+        'normal': '🟢 Normal',
+        'abnormal': '🔴 Abnormal',
+        'abnormal_episodes': '🚨 Abnormal Episodes (Onset/Offset)',
         'onset_time': 'Onset Time',
         'offset_time': 'Offset Time',
         'duration': 'Duration',
         'peak_score': 'Peak Score',
         'no_abnormal': 'No abnormal episodes detected',
-        'comparison_group': 'Select Comparison Group',
+        'comparison_group': '🏆 Select Comparison Group',
         'set_comparison': 'Set as Comparison Group',
-        'is_comparison': 'This is a COMPARISON GROUP',
+        'is_comparison': '🏆 This is a COMPARISON GROUP',
         'data_analysis': 'Data Analysis & Reporting',
         'select_analyze': 'Select groups to analyze',
         'select_all': 'Select All',
-        'comparative_report': 'Comparative Analysis Report',
-        'group_summary': 'Group Summary',
+        'comparative_report': '📊 Comparative Analysis Report',
+        'group_summary': '📋 Group Summary',
         'group': 'Group',
         'total_episodes': 'Total Abnormal Episodes',
         'affected_obs': 'Affected Observations',
         'none': 'None',
-        'episodes_by_group': 'Abnormal Episodes by Group',
+        'episodes_by_group': '🚨 Abnormal Episodes by Group',
         'summary': 'Summary:',
         'avg_duration': 'Avg Duration',
         'max_peak': 'Max Peak Score',
-        'no_episodes': 'No abnormal episodes detected in any group!',
-        'comparative_viz': 'Comparative Visualization',
+        'no_episodes': '✅ No abnormal episodes detected in any group!',
+        'comparative_viz': '📈 Comparative Visualization',
         'select_time_compare': 'Select Time Point for Comparison',
-        'export_report': 'Export Report',
-        'download_report': 'Download Complete Report',
-        'download_templates': 'Download Data Templates',
+        'export_report': '💾 Export Report',
+        'download_report': '📄 Download Complete Report',
+        'download_templates': '📝 Download Data Templates',
         'template_type': 'Select Template Type',
         'csv_template': 'CSV Template',
         'excel_template': 'Excel Template',
         'download_csv_template': 'Download CSV Template',
         'download_excel_template': 'Download Excel Template',
-        'about_title': 'About FOB Test',
+        'about_title': 'About this Dashboard',
         'tips': 'Tips:',
-        'unsaved_changes': 'You have unsaved changes!',
-        'changes_saved': 'Changes saved successfully!',
-        'auto_saved': 'Auto-saved at',
+        'unsaved_changes': '⚠️ You have unsaved changes!',
+        'changes_saved': '✅ Changes saved successfully!',
+        'auto_saved': '✅ Auto-saved at',
         'add_new_timestep': 'Add new timestep:',
         'next_timestep': 'Next timestep (min)',
         'valid': 'Valid',
-        'report_title': 'FOB Test Report',
+        'report_title': 'FOB Test Analysis Report',
         'report_generated': 'Report Generated',
         'detailed_episodes': 'DETAILED ABNORMAL EPISODES',
         'project': 'Project',
         'analysis_mode': 'Analysis Mode',
         'total_groups': 'Total Groups Analyzed',
         'not_set': 'Not set',
-        'start_instruction': 'Click \'Create New Project\' to get started',
-        'edit_tip': 'Choose your editing mode: Use \'Edit with Save Button\' to batch your changes, or \'Auto-Save Mode\' for instant saves.',
+        'start_instruction': '👆 Click \'Create New Project\' to get started',
+        'edit_tip': '💡 **Choose your editing mode**: Use \'Edit with Save Button\' to batch your changes, or \'Auto-Save Mode\' for instant saves.',
         'no_groups': 'No groups created yet',
-        'filling_all': 'Filling all worksheets with random data...',
-        'fill_complete': 'All worksheets filled with random data!',
+        'filling_all': '⏳ Filling all worksheets with random data...',
+        'fill_complete': '✅ All worksheets filled with random data!',
         'confirm_fill_all': 'This will fill random data for ALL groups across ALL analysis modes. Continue?',
         'yes': 'Yes',
         'no': 'No',
-        'download_plot': 'Download Plot',
+        'download_plot': '📥 Download Plot',
         'abnormal_count': 'Abnormal Count',
-        'binary_instruction': 'Instructions: Click on any cell to toggle between Normal (default) and Abnormal (red).',
+        'binary_instruction': '🔍 **Instructions**: Click on any cell to toggle between Normal (default) and Abnormal (red). Each observation is assessed as either Normal or Abnormal for each animal.',
         'percentage_abnormal': '% Abnormal',
         'groups_to_plot': 'Groups to plot:',
         'select_groups_chart': 'Select groups to display in the chart:',
@@ -622,7 +162,7 @@ TRANSLATIONS = {
         'weight_change': 'Weight Change',
         'weight_g': 'Weight (g)',
         'percent_change': '% Change',
-        'weight_instruction': 'Instructions: Enter the weight (in grams) for each animal before and after the experiment.',
+        'weight_instruction': '⚖️ **Instructions**: Enter the weight (in grams) for each animal before and after the experiment. Weight changes will be calculated automatically.',
         'mean_weight': 'Mean Weight',
         'weight_loss': 'Weight Loss',
         'weight_gain': 'Weight Gain',
@@ -633,33 +173,12 @@ TRANSLATIONS = {
         'final_weight': 'Final Weight'
     },
     'zh': {
-        'page_title': 'FOB测试',
-        'main_title': 'FOB测试',
-        'main_subtitle': '可视化并比较功能观察电池（FOB）测试结果',
+        'page_title': '📊 FOB测试分析仪表板',
+        'main_title': 'FOB测试分析仪表板',
+        'main_subtitle': '可视化并比较多组功能观察电池（FOB）测试结果',
         'language': '语言',
-        'login': '登录',
-        'register': '注册',
-        'username': '用户名',
-        'password': '密码',
-        'email': '电子邮件',
-        'name': '全名',
-        'logout': '退出',
-        'welcome': '欢迎',
-        'my_files': '我的文件',
-        'saved_figures': '保存的图表',
-        'saved_data': '保存的数据',
-        'download': '下载',
-        'delete': '删除',
-        'save_to_cloud': '保存到云端',
-        'load_from_cloud': '从云端加载',
-        'save_plot_to_cloud': '保存图表到云端',
-        'save_data_to_cloud': '保存数据到云端',
-        'enter_name': '输入名称（可选）：',
-        'plot_name': '图表名称（可选）：',
-        'data_name': '数据文件名称（可选）：',
-        'export_options': '导出选项：',
-        'create_project': '创建新项目',
-        'configure_project': '配置新项目',
+        'create_project': '🆕 创建新项目',
+        'configure_project': '📋 配置新项目',
         'project_name': '项目名称',
         'animal_type': '动物类型',
         'mouse': '小鼠',
@@ -668,8 +187,8 @@ TRANSLATIONS = {
         'custom_animal_name': '自定义动物名称',
         'animals_per_group': '每组动物数量',
         'num_groups': '创建组数',
-        'create': '创建项目',
-        'cancel': '取消',
+        'create': '✅ 创建项目',
+        'cancel': '❌ 取消',
         'select_mode': '选择分析模式',
         'choose_mode': '选择模式：',
         'general_behavior': '一般行为',
@@ -681,82 +200,82 @@ TRANSLATIONS = {
         'experiment_groups': '实验组',
         'select_group_edit': '选择要编辑的组',
         'data_worksheet': '数据录入工作表',
-        'manual_save': '编辑后保存',
-        'auto_save': '自动保存模式',
-        'save_changes': '保存更改',
-        'fill_random': '填充随机数据',
-        'fill_all_random': '为所有组填充随机数据',
-        'add_timestep': '添加',
-        'reset': '重置',
-        'export_csv': '导出工作表为CSV',
-        'mean_scores': '平均分数汇总',
-        'weight_summary': '体重变化汇总',
+        'manual_save': '📝 编辑后保存',
+        'auto_save': '💾 自动保存模式',
+        'save_changes': '💾 保存更改',
+        'fill_random': '🎲 填充随机数据',
+        'fill_all_random': '🎲 为所有组填充随机数据',
+        'add_timestep': '⏱️ 添加',
+        'reset': '🔄 重置',
+        'export_csv': '📥 导出工作表为CSV',
+        'mean_scores': '📊 平均分数汇总',
+        'weight_summary': '⚖️ 体重变化汇总',
         'filter_time': '按时间点筛选：',
         'time': '时间',
         'observation': '观察项',
         'mean_score': '平均分数',
         'status': '状态',
-        'normal': '正常',
-        'abnormal': '异常',
-        'abnormal_episodes': '异常事件（起始/结束）',
+        'normal': '🟢 正常',
+        'abnormal': '🔴 异常',
+        'abnormal_episodes': '🚨 异常事件（起始/结束）',
         'onset_time': '起始时间',
         'offset_time': '结束时间',
         'duration': '持续时间',
         'peak_score': '峰值分数',
         'no_abnormal': '未检测到异常事件',
-        'comparison_group': '选择对照组',
+        'comparison_group': '🏆 选择对照组',
         'set_comparison': '设为对照组',
-        'is_comparison': '这是对照组',
+        'is_comparison': '🏆 这是对照组',
         'data_analysis': '数据分析与报告',
         'select_analyze': '选择要分析的组',
         'select_all': '全选',
-        'comparative_report': '对比分析报告',
-        'group_summary': '组别汇总',
+        'comparative_report': '📊 对比分析报告',
+        'group_summary': '📋 组别汇总',
         'group': '组别',
         'total_episodes': '异常事件总数',
         'affected_obs': '受影响的观察项',
         'none': '无',
-        'episodes_by_group': '各组异常事件',
+        'episodes_by_group': '🚨 各组异常事件',
         'summary': '汇总：',
         'avg_duration': '平均持续时间',
         'max_peak': '最高峰值分数',
-        'no_episodes': '所有组均未检测到异常事件！',
-        'comparative_viz': '对比可视化',
+        'no_episodes': '✅ 所有组均未检测到异常事件！',
+        'comparative_viz': '📈 对比可视化',
         'select_time_compare': '选择比较时间点',
-        'export_report': '导出报告',
-        'download_report': '下载完整报告',
-        'download_templates': '下载数据模板',
+        'export_report': '💾 导出报告',
+        'download_report': '📄 下载完整报告',
+        'download_templates': '📝 下载数据模板',
         'template_type': '选择模板类型',
         'csv_template': 'CSV模板',
         'excel_template': 'Excel模板',
         'download_csv_template': '下载CSV模板',
         'download_excel_template': '下载Excel模板',
-        'about_title': '关于FOB测试',
+        'about_title': '关于此仪表板',
         'tips': '提示：',
-        'unsaved_changes': '您有未保存的更改！',
-        'changes_saved': '更改已成功保存！',
-        'auto_saved': '自动保存于',
+        'unsaved_changes': '⚠️ 您有未保存的更改！',
+        'changes_saved': '✅ 更改已成功保存！',
+        'auto_saved': '✅ 自动保存于',
         'add_new_timestep': '添加新时间点：',
         'next_timestep': '下一个时间点（分钟）',
         'valid': '有效',
-        'report_title': 'FOB测试报告',
+        'report_title': 'FOB测试分析报告',
         'report_generated': '报告生成时间',
         'detailed_episodes': '详细异常事件',
         'project': '项目',
         'analysis_mode': '分析模式',
         'total_groups': '分析组总数',
         'not_set': '未设置',
-        'start_instruction': '点击"创建新项目"开始',
-        'edit_tip': '选择编辑模式：使用"编辑后保存"批量更改，或使用"自动保存模式"即时保存。',
+        'start_instruction': '👆 点击"创建新项目"开始',
+        'edit_tip': '💡 **选择编辑模式**：使用"编辑后保存"批量更改，或使用"自动保存模式"即时保存。',
         'no_groups': '尚未创建组',
-        'filling_all': '正在为所有工作表填充随机数据...',
-        'fill_complete': '所有工作表已填充随机数据！',
+        'filling_all': '⏳ 正在为所有工作表填充随机数据...',
+        'fill_complete': '✅ 所有工作表已填充随机数据！',
         'confirm_fill_all': '这将为所有分析模式下的所有组填充随机数据。是否继续？',
         'yes': '是',
         'no': '否',
-        'download_plot': '下载图表',
+        'download_plot': '📥 下载图表',
         'abnormal_count': '异常计数',
-        'binary_instruction': '说明：点击任意单元格在正常（默认）和异常（红色）之间切换。',
+        'binary_instruction': '🔍 **说明**：点击任意单元格在正常（默认）和异常（红色）之间切换。每个观察项对每只动物评估为正常或异常。',
         'percentage_abnormal': '异常百分比',
         'groups_to_plot': '要绘制的组：',
         'select_groups_chart': '选择要在图表中显示的组：',
@@ -766,7 +285,7 @@ TRANSLATIONS = {
         'weight_change': '体重变化',
         'weight_g': '体重 (克)',
         'percent_change': '变化百分比',
-        'weight_instruction': '说明：输入每只动物实验前和实验后的体重（以克为单位）。',
+        'weight_instruction': '⚖️ **说明**：输入每只动物实验前和实验后的体重（以克为单位）。体重变化将自动计算。',
         'mean_weight': '平均体重',
         'weight_loss': '体重减轻',
         'weight_gain': '体重增加',
@@ -778,10 +297,10 @@ TRANSLATIONS = {
     }
 }
 
-
 # Observation translations
 OBSERVATION_TRANSLATIONS = {
     'en': {
+        # General behavior observations
         'spontaneous exploration': 'spontaneous exploration',
         'grooming': 'grooming',
         'smelling its congeners': 'smelling its congeners',
@@ -791,12 +310,14 @@ OBSERVATION_TRANSLATIONS = {
         'bad condition': 'bad condition',
         'moribund': 'moribund',
         'dead': 'dead',
+        # Autonomic observations
         'piloerection': 'piloerection',
         'skin color': 'skin color',
         'cyanosis': 'cyanosis',
         'respiratory activity': 'respiratory activity',
         'irregular breathing': 'irregular breathing',
         'stertorous': 'stertorous',
+        # Reflex observations
         'startle response': 'startle response',
         'touch reactivity': 'touch reactivity',
         'vocalization': 'vocalization',
@@ -809,6 +330,7 @@ OBSERVATION_TRANSLATIONS = {
         'righting reflex': 'righting reflex',
         'body tone': 'body tone',
         'pain response': 'pain response',
+        # Convulsive observations
         'spontaneous activity': 'spontaneous activity',
         'restlessness': 'restlessness',
         'fighting': 'fighting',
@@ -819,10 +341,12 @@ OBSERVATION_TRANSLATIONS = {
         'straub': 'straub',
         'opisthotonus': 'opisthotonus',
         'convulsion': 'convulsion',
+        # Other
         'body temperature': 'body temperature',
         'body weight': 'body weight'
     },
     'zh': {
+        # General behavior observations
         'spontaneous exploration': '自发探索',
         'grooming': '理毛',
         'smelling its congeners': '嗅探同类',
@@ -832,12 +356,14 @@ OBSERVATION_TRANSLATIONS = {
         'bad condition': '状态不佳',
         'moribund': '濒死',
         'dead': '死亡',
+        # Autonomic observations
         'piloerection': '立毛',
         'skin color': '皮肤颜色',
         'cyanosis': '发绀',
         'respiratory activity': '呼吸活动',
         'irregular breathing': '呼吸不规则',
         'stertorous': '鼾声呼吸',
+        # Reflex observations
         'startle response': '惊吓反应',
         'touch reactivity': '触觉反应',
         'vocalization': '发声',
@@ -850,6 +376,7 @@ OBSERVATION_TRANSLATIONS = {
         'righting reflex': '翻正反射',
         'body tone': '肌张力',
         'pain response': '疼痛反应',
+        # Convulsive observations
         'spontaneous activity': '自发活动',
         'restlessness': '躁动不安',
         'fighting': '打斗',
@@ -860,6 +387,7 @@ OBSERVATION_TRANSLATIONS = {
         'straub': '竖尾反应',
         'opisthotonus': '角弓反张',
         'convulsion': '惊厥',
+        # Other
         'body temperature': '体温',
         'body weight': '体重'
     }
@@ -869,6 +397,7 @@ OBSERVATION_TRANSLATIONS = {
 if 'language' not in st.session_state:
     st.session_state.language = 'en'
 
+# Get translation function
 def t(key):
     """Get translation for the current language"""
     return TRANSLATIONS[st.session_state.language].get(key, key)
@@ -909,22 +438,6 @@ def set_custom_style():
         .stButton>button:hover {
             background-color: #2a5a9c;
             transform: scale(1.05);
-        }
-        .auth-container {
-            background-color: white;
-            border: 2px solid #1a3d6d;
-            border-radius: 10px;
-            padding: 30px;
-            margin: 20px auto;
-            max-width: 400px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        .file-manager {
-            background-color: #f0f8ff;
-            border: 1px solid #1a3d6d;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 10px 0;
         }
         .worksheet-container {
             background-color: white;
@@ -998,33 +511,76 @@ def set_custom_style():
 
 set_custom_style()
 
+# Sidebar for language selection
+with st.sidebar:
+    st.selectbox(
+        t('language'),
+        options=['en', 'zh'],
+        format_func=lambda x: 'English' if x == 'en' else '中文',
+        key='language'
+    )
+
+# App header
+st.title(t('main_title'))
+st.markdown(t('main_subtitle'))
+
 # Constants for modes
 GENERAL_BEHAVIOR_OBSERVATIONS = [
-    'spontaneous exploration', 'grooming', 'smelling its congeners',
-    'normal resting state', 'alertness', 'distending / oedema',
-    'bad condition', 'moribund', 'dead'
+    'spontaneous exploration',
+    'grooming',
+    'smelling its congeners',
+    'normal resting state',
+    'alertness',
+    'distending / oedema',
+    'bad condition',
+    'moribund',
+    'dead'
 ]
 
 AUTONOMIC_OBSERVATIONS = [
-    'piloerection', 'skin color', 'cyanosis',
-    'respiratory activity', 'irregular breathing', 'stertorous'
+    'piloerection',
+    'skin color',
+    'cyanosis',
+    'respiratory activity',
+    'irregular breathing',
+    'stertorous'
 ]
 
 REFLEX_OBSERVATIONS = [
-    'startle response', 'touch reactivity', 'vocalization', 'abnormal gait',
-    'corneal reflex', 'pinna reflex', 'catalepsy', 'grip reflex',
-    'pulling reflex', 'righting reflex', 'body tone', 'pain response'
+    'startle response',
+    'touch reactivity',
+    'vocalization',
+    'abnormal gait',
+    'corneal reflex',
+    'pinna reflex',
+    'catalepsy',
+    'grip reflex',
+    'pulling reflex',
+    'righting reflex',
+    'body tone',
+    'pain response'
 ]
 
 CONVULSIVE_OBSERVATIONS = [
-    'spontaneous activity', 'restlessness', 'fighting', 'writhing',
-    'tremor', 'stereotypy', 'twitches / jerks', 'straub',
-    'opisthotonus', 'convulsion'
+    'spontaneous activity',
+    'restlessness',
+    'fighting',
+    'writhing',
+    'tremor',
+    'stereotypy',
+    'twitches / jerks',
+    'straub',
+    'opisthotonus',
+    'convulsion'
 ]
 
+# Updated ALL_MODES to include Body Weight
 ALL_MODES = [
-    "General Behavior", "Autonomic and Sensorimotor Functions",
-    "Reflex Capabilities", "Body Temperature", "Body Weight",
+    "General Behavior", 
+    "Autonomic and Sensorimotor Functions", 
+    "Reflex Capabilities", 
+    "Body Temperature",
+    "Body Weight",
     "Convulsive Behaviors and Excitability"
 ]
 
@@ -1052,8 +608,7 @@ if 'save_status' not in st.session_state:
 if 'comparison_groups' not in st.session_state:
     st.session_state.comparison_groups = {}
 
-# ====================== HELPER FUNCTIONS ======================
-
+# Helper function to save plot as bytes
 def save_plot_as_bytes(fig):
     """Save matplotlib figure as bytes for download"""
     img_buffer = BytesIO()
@@ -1061,76 +616,21 @@ def save_plot_as_bytes(fig):
     img_buffer.seek(0)
     return img_buffer.getvalue()
 
-def save_plot_to_cloud_with_name(fig, username, figure_name, project_name=None):
-    """Save plot to cloud under project folder with user-specified name"""
-    if not figure_name:
-        figure_name = f"plot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    
-    proj = project_name or get_active_project_name()
-    with st.spinner(f"Saving '{figure_name}' to cloud (project: {proj})..."):
-        url, key = save_figure_to_s3(fig, username, figure_name, project_name=proj)
-        
-    if url and key:
-        st.success(f"✅ Figure '{figure_name}' saved to cloud!")
-        if url:
-            st.markdown(f"📥 [Download Link]({url}) (valid for 1 hour)")
-        st.info(f"📍 Saved as: {key}")
-
-        # 👇 Print the directory (prefix)
-        folder = key.rsplit('/', 1)[0] + '/'
-        st.write("📁 Directory:")
-        st.code(f"s3://{S3_BUCKET_NAME}/{folder}", language="bash")
-
-        # (optional) also show the full object path
-        st.write("🔑 Full object key:")
-        st.code(f"s3://{S3_BUCKET_NAME}/{key}", language="bash")
-        return True
-
-    else:
-        st.error("❌ Failed to save figure to cloud")
-        st.info("Please check: 1) AWS credentials in Streamlit secrets, 2) S3 bucket permissions, 3) Internet connection")
-        return False
-
-def save_data_to_cloud_with_name(df, username, data_name, project_name=None):
-    """Save data to cloud under project folder with user-specified name"""
-    if not data_name:
-        data_name = f"data_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    
-    proj = project_name or get_active_project_name()
-    with st.spinner(f"Saving '{data_name}' to cloud (project: {proj})..."):
-        key = save_dataframe_to_s3(df, username, data_name, project_name=proj)
-        
-    if key:
-        st.success(f"Data '{data_name}' saved to cloud!")
-        st.info(f"📍 Saved as: {key}")
-        st.info(f"Data shape: {len(df)} rows × {len(df.columns)} columns")
-
-        # 👇 Print the directory (prefix)
-        folder = key.rsplit('/', 1)[0] + '/'
-        st.write("📁 Directory:")
-        st.code(f"s3://{S3_BUCKET_NAME}/{folder}", language="bash")
-
-        # (optional) also show the full object path
-        st.write("🔑 Full object key:")
-        st.code(f"s3://{S3_BUCKET_NAME}/{key}", language="bash")
-        return True
-
-    else:
-        st.error("❌ Failed to save data to cloud")
-        st.info("Please check: 1) AWS credentials in Streamlit secrets, 2) S3 bucket permissions, 3) Internet connection")
-        return False
-
+# Helper function to parse the scoring system
 def parse_score(score_str):
     """Parse 0/4/8 scoring system with +/- modifiers or Normal/Abnormal"""
     if pd.isna(score_str):
         return np.nan
     
+    # Handle binary Normal/Abnormal
     if str(score_str).lower() in ['normal', 'abnormal']:
         return 0 if str(score_str).lower() == 'normal' else 1
     
+    # Convert to string if it's a number
     if isinstance(score_str, (int, float)):
         return float(score_str)
     
+    # Extract base score and modifiers
     match = re.match(r'(\d+(?:\.\d+)?)([\+\-]*)', str(score_str))
     if not match:
         return np.nan
@@ -1138,6 +638,7 @@ def parse_score(score_str):
     base_score = float(match.group(1))
     modifiers = match.group(2)
     
+    # Calculate numerical value
     value = base_score
     if modifiers:
         modifier_value = len(modifiers) * (1 if '+' in modifiers else -1)
@@ -1145,6 +646,7 @@ def parse_score(score_str):
     
     return value
 
+# Function to calculate mean score from animal data
 def calculate_mean_score(animal_scores):
     """Calculate mean score from individual animal scores"""
     parsed_scores = [parse_score(score) for score in animal_scores if pd.notna(score)]
@@ -1152,15 +654,17 @@ def calculate_mean_score(animal_scores):
         return np.mean(parsed_scores)
     return np.nan
 
+# Function to generate random data
 def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
     """Generate random data based on the mode"""
     if mode == "Body Temperature":
+        # Normal temp range varies by animal type
         if animal_type == "rat":
             base_temp_mean = 37.5
         elif animal_type == "mouse":
             base_temp_mean = 37.0
         else:
-            base_temp_mean = 37.2
+            base_temp_mean = 37.2  # Default for custom animals
             
         data = {
             'time': [],
@@ -1173,7 +677,9 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
             data['time'].append(time)
             data['observation'].append('body temperature')
             for i in range(1, num_animals + 1):
+                # Generate realistic body temperature
                 base_temp = np.random.normal(base_temp_mean, 0.5)
+                # Add some time-based variation
                 if time > 30:
                     base_temp += np.random.normal(0.2, 0.1)
                 data[f'{animal_type}_{i}'].append(f"{base_temp:.1f}")
@@ -1181,12 +687,13 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
         return pd.DataFrame(data)
     
     elif mode == "Body Weight":
+        # Generate weight data for before and after experiment
         if animal_type == "rat":
-            base_weight_mean = 250
+            base_weight_mean = 250  # Rats are heavier
         elif animal_type == "mouse":
-            base_weight_mean = 25
+            base_weight_mean = 25   # Mice are lighter
         else:
-            base_weight_mean = 100
+            base_weight_mean = 100  # Default for custom animals
             
         data = {
             'time': [],
@@ -1195,30 +702,35 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
         for i in range(1, num_animals + 1):
             data[f'{animal_type}_{i}'] = []
         
+        # Only two time points for weight: before (0) and after (e.g., end of experiment)
         for time_label in ['before', 'after']:
             data['time'].append(time_label)
             data['observation'].append('body weight')
             for i in range(1, num_animals + 1):
                 if time_label == 'before':
+                    # Initial weight
                     weight = np.random.normal(base_weight_mean, base_weight_mean * 0.1)
                 else:
+                    # After experiment - usually slight weight loss (stress, food restriction)
                     initial_weight = float(data[f'{animal_type}_{i}'][0])
+                    # 90% chance of weight loss, 10% chance of weight gain
                     if np.random.random() < 0.9:
-                        weight_change = np.random.uniform(-0.05, -0.01) * initial_weight
+                        weight_change = np.random.uniform(-0.05, -0.01) * initial_weight  # 1-5% loss
                     else:
-                        weight_change = np.random.uniform(0, 0.02) * initial_weight
+                        weight_change = np.random.uniform(0, 0.02) * initial_weight  # 0-2% gain
                     weight = initial_weight + weight_change
                 data[f'{animal_type}_{i}'].append(f"{weight:.1f}")
         
         return pd.DataFrame(data)
     
     elif mode in ["Convulsive Behaviors and Excitability", "Autonomic and Sensorimotor Functions", "Reflex Capabilities"]:
+        # Binary Normal/Abnormal system
         observations = []
         if mode == "Convulsive Behaviors and Excitability":
             observations = CONVULSIVE_OBSERVATIONS
         elif mode == "Autonomic and Sensorimotor Functions":
             observations = AUTONOMIC_OBSERVATIONS
-        else:
+        else:  # Reflex Capabilities
             observations = REFLEX_OBSERVATIONS
             
         data = {
@@ -1233,6 +745,7 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
                 data['time'].append(time)
                 data['observation'].append(obs)
                 for i in range(1, num_animals + 1):
+                    # 80% normal, 20% abnormal
                     if np.random.random() < 0.8:
                         data[f'{animal_type}_{i}'].append('Normal')
                     else:
@@ -1254,7 +767,8 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
                 data['time'].append(time)
                 data['observation'].append(behavior)
                 for i in range(1, num_animals + 1):
-                    if np.random.random() < 0.7:
+                    # 0/4/8 system - generate scores mostly in normal range
+                    if np.random.random() < 0.7:  # 70% normal range
                         base = 4
                     else:
                         base = np.random.choice([0, 8])
@@ -1263,8 +777,9 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
         
         return pd.DataFrame(data)
 
+# Function to fill all worksheets with random data
 def fill_all_worksheets_with_random_data():
-    """Fill all worksheets for all groups and all modes with random data without confirmation"""
+    """Fill all worksheets for all groups and all modes with random data"""
     if st.session_state.active_project is None:
         st.error("No active project")
         return
@@ -1275,18 +790,22 @@ def fill_all_worksheets_with_random_data():
         animal_type = project.get('custom_animal_name', 'animal')
     num_animals = project.get('num_animals', 8)
     
+    # Get all groups for this project
     project_groups = [exp for exp in st.session_state.experiments.keys() 
                      if exp.startswith(project['name'])]
     
     filled_count = 0
     
+    # Progress tracking
     progress_placeholder = st.empty()
     progress_bar = st.progress(0)
     
     total_worksheets = len(project_groups) * len(ALL_MODES)
     current_worksheet = 0
     
+    # For each group
     for group in project_groups:
+        # For each mode
         for mode in ALL_MODES:
             current_worksheet += 1
             progress = current_worksheet / total_worksheets
@@ -1295,6 +814,7 @@ def fill_all_worksheets_with_random_data():
             
             worksheet_key = f"worksheet_{group}_{mode}"
             
+            # Generate appropriate observations for this mode
             if mode == "Autonomic and Sensorimotor Functions":
                 observations = AUTONOMIC_OBSERVATIONS
             elif mode == "Reflex Capabilities":
@@ -1308,6 +828,7 @@ def fill_all_worksheets_with_random_data():
             else:
                 observations = GENERAL_BEHAVIOR_OBSERVATIONS
             
+            # Check if worksheet exists, if not create it
             if worksheet_key not in st.session_state:
                 if mode == "Body Weight":
                     times = ['before', 'after']
@@ -1330,31 +851,37 @@ def fill_all_worksheets_with_random_data():
                         data.append(row)
                 st.session_state[worksheet_key] = pd.DataFrame(data)
             
+            # Get existing times from the worksheet
             existing_df = st.session_state[worksheet_key]
             if mode == "Body Weight":
                 times = ['before', 'after']
             else:
                 times = sorted(existing_df['time'].unique())
             
+            # Generate random data
             random_df = generate_random_data(mode, times, num_animals, animal_type)
             
+            # Update the worksheet
             st.session_state[worksheet_key] = random_df
             st.session_state.worksheet_data[f"{group}_{mode}"] = random_df
             filled_count += 1
     
+    # Clear progress indicators
     progress_placeholder.empty()
     progress_bar.empty()
     
     return filled_count
 
-
+# Function to process data with onset/offset tracking
 def process_data_with_episodes(df, mode, animal_type="mouse", num_animals=8):
     """Process data and track onset/offset of abnormal episodes"""
     results = []
     
+    # Skip weight mode as it doesn't have episodes
     if mode == "Body Weight":
         return pd.DataFrame(results)
     
+    # Get appropriate observations based on mode
     if mode == "Autonomic and Sensorimotor Functions":
         observations = AUTONOMIC_OBSERVATIONS
     elif mode == "Reflex Capabilities":
@@ -1363,7 +890,7 @@ def process_data_with_episodes(df, mode, animal_type="mouse", num_animals=8):
         observations = CONVULSIVE_OBSERVATIONS
     elif mode == "Body Temperature":
         observations = ['body temperature']
-    else:
+    else:  # General Behavior
         observations = df['observation'].unique()
     
     for obs in observations:
@@ -1372,35 +899,44 @@ def process_data_with_episodes(df, mode, animal_type="mouse", num_animals=8):
         if obs_df.empty:
             continue
         
+        # Track episodes
         onset_time = None
         in_episode = False
         peak_score = 0
         
         for _, row in obs_df.iterrows():
+            # Calculate mean score from all animals
             animal_scores = [row[f'{animal_type}_{i}'] for i in range(1, num_animals + 1) 
                            if f'{animal_type}_{i}' in row]
             
             if mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
+                # For binary modes, count percentage of abnormal
                 abnormal_count = sum(1 for score in animal_scores if str(score).lower() == 'abnormal')
                 mean_score = (abnormal_count / len(animal_scores)) * 100 if animal_scores else 0
-                is_abnormal = abnormal_count > 0
+                is_abnormal = abnormal_count > 0  # Any animal abnormal
             else:
                 mean_score = calculate_mean_score(animal_scores)
                 
+                # Track peak score
                 if not pd.isna(mean_score) and mean_score > peak_score:
                     peak_score = mean_score
                 
+                # Determine if abnormal based on mode
                 is_abnormal = False
                 if mode == "Body Temperature":
+                    # Abnormal if outside 36-38°C range
                     is_abnormal = mean_score < 36 or mean_score > 38
-                else:
+                else:  # General Behavior
+                    # Abnormal if mean < 2 or > 6
                     is_abnormal = mean_score < 2 or mean_score > 6
             
             if is_abnormal and not in_episode:
+                # Start of abnormal episode
                 onset_time = row['time']
                 in_episode = True
                 peak_score = mean_score
             elif not is_abnormal and in_episode:
+                # End of abnormal episode
                 results.append({
                     t('observation'): t_obs(obs),
                     t('onset_time'): onset_time,
@@ -1412,6 +948,7 @@ def process_data_with_episodes(df, mode, animal_type="mouse", num_animals=8):
                 onset_time = None
                 peak_score = 0
         
+        # Handle ongoing episode
         if in_episode and onset_time is not None:
             results.append({
                 t('observation'): t_obs(obs),
@@ -1423,6 +960,7 @@ def process_data_with_episodes(df, mode, animal_type="mouse", num_animals=8):
     
     return pd.DataFrame(results)
 
+# Function to generate template data
 def create_template(mode="General Behavior", num_animals=8, animal_type="mouse"):
     """Create template with individual animal columns"""
     if mode == "Body Temperature":
@@ -1431,6 +969,7 @@ def create_template(mode="General Behavior", num_animals=8, animal_type="mouse")
             'time': [],
             'observation': []
         }
+        # Add animal columns
         for i in range(1, num_animals + 1):
             data[f'{animal_type}_{i}'] = []
         
@@ -1438,16 +977,19 @@ def create_template(mode="General Behavior", num_animals=8, animal_type="mouse")
             data['time'].append(time)
             data['observation'].append('body temperature')
             for i in range(1, num_animals + 1):
+                # Normal temperature range
                 temp = np.random.normal(37.0, 0.2)
                 data[f'{animal_type}_{i}'].append(f"{temp:.1f}")
         
         return pd.DataFrame(data)
     
     elif mode == "Body Weight":
+        # Weight template with before/after
         data = {
             'time': [],
             'observation': []
         }
+        # Add animal columns
         for i in range(1, num_animals + 1):
             data[f'{animal_type}_{i}'] = []
         
@@ -1479,6 +1021,7 @@ def create_template(mode="General Behavior", num_animals=8, animal_type="mouse")
             'time': [],
             'observation': []
         }
+        # Add animal columns
         for i in range(1, num_animals + 1):
             data[f'{animal_type}_{i}'] = []
         
@@ -1486,12 +1029,13 @@ def create_template(mode="General Behavior", num_animals=8, animal_type="mouse")
             for obs in observations:
                 data['time'].append(time)
                 data['observation'].append(obs)
+                # Add scores for each animal - default to Normal
                 for i in range(1, num_animals + 1):
                     data[f'{animal_type}_{i}'].append('Normal')
         
         return pd.DataFrame(data)
     
-    else:
+    else:  # General Behavior
         behaviors = GENERAL_BEHAVIOR_OBSERVATIONS
         times = [0, 15, 30]
         
@@ -1499,6 +1043,7 @@ def create_template(mode="General Behavior", num_animals=8, animal_type="mouse")
             'time': [],
             'observation': []
         }
+        # Add animal columns
         for i in range(1, num_animals + 1):
             data[f'{animal_type}_{i}'] = []
         
@@ -1507,32 +1052,40 @@ def create_template(mode="General Behavior", num_animals=8, animal_type="mouse")
                 data['time'].append(time)
                 data['observation'].append(behavior)
                 
+                # Add scores for each animal
                 for i in range(1, num_animals + 1):
+                    # 0/4/8 system with modifiers
                     base = random.choice([0, 4, 8])
                     modifier = random.choice(['', '+', '-', '++', '--'])
                     data[f'{animal_type}_{i}'].append(f"{base}{modifier}")
         
         return pd.DataFrame(data)
 
+# Function to create worksheet interface
 def create_worksheet(mode, experiment_name, project_info):
     """Create an editable worksheet for data entry"""
     st.subheader(f"{t('data_worksheet')} - {experiment_name}")
     
+    # Get animal info from project
     animal_type = project_info.get('animal_type', 'mouse')
     if animal_type == 'custom':
         animal_type = project_info.get('custom_animal_name', 'animal')
     num_animals = project_info.get('num_animals', 8)
     
+    # Show if this is a comparison group
     if experiment_name in st.session_state.comparison_groups.get(st.session_state.active_project, []):
         st.success(t('is_comparison'))
     
+    # Show appropriate instruction based on mode
     if mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
         st.markdown(f'<div class="binary-instruction">{t("binary_instruction")}</div>', unsafe_allow_html=True)
     elif mode == "Body Weight":
         st.markdown(f'<div class="binary-instruction">{t("weight_instruction")}</div>', unsafe_allow_html=True)
     
+    # Create a unique key for this worksheet that includes mode
     worksheet_key = f"worksheet_{experiment_name}_{mode}"
     
+    # Initialize worksheet data if not exists
     if worksheet_key not in st.session_state:
         if mode == "Autonomic and Sensorimotor Functions":
             observations = AUTONOMIC_OBSERVATIONS
@@ -1547,6 +1100,7 @@ def create_worksheet(mode, experiment_name, project_info):
         else:
             observations = GENERAL_BEHAVIOR_OBSERVATIONS
         
+        # Create initial data structure
         if mode == "Body Weight":
             times = ['before', 'after']
         else:
@@ -1574,8 +1128,10 @@ def create_worksheet(mode, experiment_name, project_info):
         
         st.session_state[worksheet_key] = pd.DataFrame(data)
     
+    # Get the dataframe from session state
     df = st.session_state[worksheet_key].copy()
     
+    # Configure column settings with better formatting
     if mode == "Body Weight":
         column_config = {
             'time': st.column_config.SelectboxColumn(
@@ -1598,6 +1154,7 @@ def create_worksheet(mode, experiment_name, project_info):
             'observation': st.column_config.TextColumn(t('observation'), disabled=True)
         }
     
+    # Add animal columns configuration
     for i in range(1, num_animals + 1):
         if mode == "Body Temperature":
             column_config[f'{animal_type}_{i}'] = st.column_config.TextColumn(
@@ -1625,16 +1182,20 @@ def create_worksheet(mode, experiment_name, project_info):
                 max_chars=5
             )
     
+    # Create two tabs for different interaction modes
     tab1, tab2 = st.tabs([t('manual_save'), t('auto_save')])
     
     with tab1:
         st.markdown(f"**{t('manual_save')}**")
         
+        # Check if there are unsaved changes
         temp_key = f"temp_{worksheet_key}"
         if temp_key in st.session_state and not df.equals(st.session_state[temp_key]):
             st.warning(t('unsaved_changes'))
         
+        # Use a form to prevent constant reruns
         with st.form(key=f"form_{worksheet_key}"):
+            # Create editable dataframe
             edited_df = st.data_editor(
                 df,
                 column_config=column_config,
@@ -1644,8 +1205,10 @@ def create_worksheet(mode, experiment_name, project_info):
                 hide_index=True
             )
             
+            # Store temp changes
             st.session_state[temp_key] = edited_df
             
+            # Form submit button
             col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
             with col1:
                 submitted = st.form_submit_button(t('save_changes'), use_container_width=True, type="primary")
@@ -1671,16 +1234,21 @@ def create_worksheet(mode, experiment_name, project_info):
             with col4:
                 reset = st.form_submit_button(t('reset'), use_container_width=True)
             
+            # Fix: Ensure state changes are properly handled
             if submitted:
+                # Update session state with edited data
                 st.session_state[worksheet_key] = edited_df.copy()
                 st.session_state.worksheet_data[f"{experiment_name}_{mode}"] = edited_df.copy()
                 st.session_state.save_status[experiment_name] = "saved"
+                # Clear temp changes
                 if temp_key in st.session_state:
                     del st.session_state[temp_key]
                 st.success(t('changes_saved'))
+                # Force rerun to reflect changes
                 st.rerun()
             
             if fill_random:
+                # Generate random data
                 if mode == "Body Weight":
                     times = ['before', 'after']
                 else:
@@ -1690,6 +1258,7 @@ def create_worksheet(mode, experiment_name, project_info):
                 st.rerun()
             
             if add_timestep and mode != "Body Weight":
+                # Add new timestep with all observations
                 new_rows = []
                 observations = edited_df['observation'].unique()
                 for obs in observations:
@@ -1703,11 +1272,13 @@ def create_worksheet(mode, experiment_name, project_info):
                             new_row[f'{animal_type}_{i}'] = '0'
                     new_rows.append(new_row)
                 
+                # Append new rows
                 new_df = pd.concat([edited_df, pd.DataFrame(new_rows)], ignore_index=True)
                 st.session_state[worksheet_key] = new_df
                 st.rerun()
             
             if reset:
+                # Reset to original state
                 if temp_key in st.session_state:
                     del st.session_state[temp_key]
                 st.rerun()
@@ -1716,6 +1287,7 @@ def create_worksheet(mode, experiment_name, project_info):
         st.markdown(f"**{t('auto_save')}**")
         st.info(t('edit_tip'))
         
+        # Quick action buttons
         col1, col2, col3 = st.columns([1, 1, 2])
         with col1:
             if st.button(t('fill_random'), use_container_width=True, key=f"random_auto_{worksheet_key}"):
@@ -1727,6 +1299,7 @@ def create_worksheet(mode, experiment_name, project_info):
                 st.session_state[worksheet_key] = random_df
                 st.rerun()
         
+        # Create editable dataframe without form (auto-saves)
         edited_df_auto = st.data_editor(
             st.session_state[worksheet_key],
             column_config=column_config,
@@ -1736,13 +1309,16 @@ def create_worksheet(mode, experiment_name, project_info):
             hide_index=True
         )
         
+        # Auto-save the changes
         if not edited_df_auto.equals(st.session_state[worksheet_key]):
             st.session_state[worksheet_key] = edited_df_auto.copy()
             st.session_state.worksheet_data[f"{experiment_name}_{mode}"] = edited_df_auto.copy()
             st.session_state.save_status[experiment_name] = "saved"
         
+        # Show save status with timestamp
         st.success(f"{t('auto_saved')} {datetime.datetime.now().strftime('%H:%M:%S')}")
         
+        # Quick actions - NEW TIMESTEP FUNCTIONALITY (not for Body Weight)
         if mode != "Body Weight":
             st.markdown(f"**{t('add_new_timestep')}**")
             col1, col2 = st.columns([3, 2])
@@ -1758,6 +1334,7 @@ def create_worksheet(mode, experiment_name, project_info):
                 )
             with col2:
                 if st.button(t('add_timestep'), use_container_width=True):
+                    # Add rows for new timestep
                     new_rows = []
                     observations = edited_df_auto['observation'].unique()
                     for obs in observations:
@@ -1771,22 +1348,26 @@ def create_worksheet(mode, experiment_name, project_info):
                                 new_row[f'{animal_type}_{i}'] = '0'
                         new_rows.append(new_row)
                     
+                    # Append new rows
                     new_df = pd.concat([edited_df_auto, pd.DataFrame(new_rows)], ignore_index=True)
                     st.session_state[worksheet_key] = new_df
                     st.rerun()
     
+    # Get the current dataframe (from whichever tab was used)
     current_df = st.session_state[worksheet_key]
     
+    # Display appropriate summary based on mode
     if mode == "Body Weight":
         st.subheader(t('weight_summary'))
         
+        # Calculate weight changes
         weight_data = []
         before_df = current_df[current_df['time'] == 'before']
         after_df = current_df[current_df['time'] == 'after']
         
         if not before_df.empty and not after_df.empty:
             for i in range(1, num_animals + 1):
-                animal_col = f'{animal_type}_{i}'  # <-- fix: was a list before
+                animal_col = f'{animal_type}_{i}'
                 if animal_col in before_df.columns:
                     try:
                         before_weight = float(before_df.iloc[0][animal_col])
@@ -1818,6 +1399,7 @@ def create_worksheet(mode, experiment_name, project_info):
                 }
             )
             
+            # Calculate group statistics
             col1, col2, col3 = st.columns(3)
             with col1:
                 before_key = f"{t('before_experiment')} (g)"
@@ -1832,8 +1414,10 @@ def create_worksheet(mode, experiment_name, project_info):
                 mean_change = np.mean([float(row[change_key]) for row in weight_data])
                 st.metric(f"{t('mean_weight')} {t('weight_change')}", f"{mean_change:.1f} g")
     else:
+        # Original mean scores summary for other modes
         st.subheader(t('mean_scores'))
         
+        # Add a filter for time points
         unique_times = sorted(current_df['time'].unique())
         selected_times = st.multiselect(
             t('filter_time'),
@@ -1846,9 +1430,10 @@ def create_worksheet(mode, experiment_name, project_info):
         
         for _, row in filtered_df.iterrows():
             animal_scores = [row[f'{animal_type}_{i}'] for i in range(1, num_animals + 1) 
-                           if f'{animal_type}_{i}' in row]
+                            if f'{animal_type}_{i}' in row]
             
             if mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
+                # For binary modes, calculate percentage abnormal
                 abnormal_count = sum(1 for score in animal_scores if str(score).lower() == 'abnormal')
                 percent_abnormal = (abnormal_count / len(animal_scores)) * 100 if animal_scores else 0
                 status = t('abnormal') if abnormal_count > 0 else t('normal')
@@ -1863,14 +1448,16 @@ def create_worksheet(mode, experiment_name, project_info):
             else:
                 mean_score = calculate_mean_score(animal_scores)
                 
+                # Count how many animals have valid scores
                 valid_scores = sum(1 for score in animal_scores if pd.notna(score) and score != '')
                 
+                # Determine status based on mode and thresholds
                 if pd.isna(mean_score):
                     status = 'N/A'
                 else:
                     if mode == "Body Temperature":
                         status = t('normal') if 36 <= mean_score <= 38 else t('abnormal')
-                    else:
+                    else:  # General Behavior
                         if mean_score < 2 or mean_score > 6:
                             status = t('abnormal')
                         else:
@@ -1886,6 +1473,7 @@ def create_worksheet(mode, experiment_name, project_info):
         
         summary_df = pd.DataFrame(summary_data)
         
+        # Display with custom styling
         st.dataframe(
             summary_df,
             use_container_width=True,
@@ -1895,6 +1483,7 @@ def create_worksheet(mode, experiment_name, project_info):
             }
         )
         
+        # Display abnormal episodes (not for Body Weight)
         st.subheader(t('abnormal_episodes'))
         episodes_df = process_data_with_episodes(current_df, mode, animal_type, num_animals)
         if not episodes_df.empty:
@@ -1904,14 +1493,17 @@ def create_worksheet(mode, experiment_name, project_info):
     
     return current_df
 
+# New function to create plots for all modes
 def create_comparative_plot(selected_for_viz, mode_eng, project, comparison_group=None):
     """Create comparative plots for all analysis modes"""
     
+    # Get animal info
     animal_type = project.get('animal_type', 'mouse')
     if animal_type == 'custom':
         animal_type = project.get('custom_animal_name', 'animal')
     num_animals = project.get('num_animals', 8)
     
+    # Get all times across selected groups
     all_times = set()
     valid_groups = []
     
@@ -1928,7 +1520,9 @@ def create_comparative_plot(selected_for_viz, mode_eng, project, comparison_grou
         st.warning("No data available for visualization")
         return None
     
+    # Create visualization based on mode
     if mode_eng == "General Behavior":
+        # For General Behavior, still use bar plot with time selection
         selected_time = st.selectbox(
             t('select_time_compare'), 
             sorted(list(all_times)),
@@ -1936,8 +1530,11 @@ def create_comparative_plot(selected_for_viz, mode_eng, project, comparison_grou
         )
         return create_general_behavior_plot(valid_groups, selected_time, mode_eng, animal_type, num_animals, comparison_group)
     elif mode_eng == "Body Weight":
+        # For Body Weight, create a special comparison plot
         return create_body_weight_comparison_plot(valid_groups, mode_eng, animal_type, num_animals, comparison_group)
     else:
+        # For all other modes, use line charts
+        # Allow selection of which groups to plot
         st.markdown(f"**{t('select_groups_chart')}**")
         selected_groups_for_plot = st.multiselect(
             t('groups_to_plot'),
@@ -2005,32 +1602,40 @@ def create_body_weight_comparison_plot(valid_groups, mode_eng, animal_type, num_
         st.warning("No valid weight data found")
         return None
     
+    # Create grouped bar chart
     x = np.arange(len(group_names))
     width = 0.35
     
+    # Plot before/after bars
     bars1 = ax.bar(x - width/2, before_means, width, yerr=before_stds, 
-                   label=t('before_experiment'), capsize=5, alpha=0.8, color='#3498db')
+                     label=t('before_experiment'), capsize=5, alpha=0.8, color='#3498db')
     bars2 = ax.bar(x + width/2, after_means, width, yerr=after_stds,
-                   label=t('after_experiment'), capsize=5, alpha=0.8, color='#e74c3c')
+                     label=t('after_experiment'), capsize=5, alpha=0.8, color='#e74c3c')
     
+    # Color comparison group differently
     for i, group in enumerate(group_names):
         full_group = f"{st.session_state.projects[st.session_state.active_project]['name']}_Group_{group}"
         if full_group == comparison_group:
             bars1[i].set_color('#28a745')
             bars2[i].set_color('#1e7e34')
     
+    # Add value labels on bars
     for i, (before, after) in enumerate(zip(before_means, after_means)):
+        # Before weight label
         ax.text(i - width/2, before + before_stds[i] + 0.5, f"{before:.1f}", 
                 ha='center', va='bottom', fontsize=10, fontweight='bold')
+        # After weight label
         ax.text(i + width/2, after + after_stds[i] + 0.5, f"{after:.1f}", 
                 ha='center', va='bottom', fontsize=10, fontweight='bold')
         
+        # Add percentage change label above the group
         change_color = 'red' if percent_changes[i] < 0 else 'green'
         y_pos = max(before + before_stds[i], after + after_stds[i]) + 3
         ax.text(i, y_pos, f"{percent_changes[i]:+.1f}%", 
                 ha='center', va='bottom', fontsize=11, fontweight='bold', 
                 color=change_color, bbox=dict(boxstyle="round,pad=0.3", facecolor='white', edgecolor=change_color))
     
+    # Formatting
     ax.set_xlabel(t('group'), fontsize=14)
     ax.set_ylabel(f"{t('weight_g')}", fontsize=14)
     ax.set_title(f"{t('body_weight')} - {t('before_experiment')} vs {t('after_experiment')} {t('comparative_viz')}", 
@@ -2040,9 +1645,11 @@ def create_body_weight_comparison_plot(valid_groups, mode_eng, animal_type, num_
     ax.legend(fontsize=12, loc='upper left')
     ax.grid(True, alpha=0.3, axis='y')
     
+    # Add a subtle horizontal line at y=0 to show the baseline
     if min(before_means + after_means) < 0:
         ax.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
     
+    # Set y-axis to start from 0 unless there are negative values
     if min(before_means + after_means) >= 0:
         ax.set_ylim(bottom=0)
     
@@ -2081,17 +1688,20 @@ def create_general_behavior_plot(valid_groups, selected_time, mode_eng, animal_t
         st.warning("No valid data for the selected time point")
         return None
     
+    # Create bar plot
     x_pos = range(len(group_names))
     bars = ax.bar(x_pos, overall_means, yerr=overall_stds, capsize=5, alpha=0.8)
     
+    # Color bars based on status
     for i, (mean, group) in enumerate(zip(overall_means, group_names)):
         if group == comparison_group:
-            bars[i].set_color('#28a745')
-        elif mean < 2 or mean > 6:
-            bars[i].set_color('#ff6b6b')
+            bars[i].set_color('#28a745')  # Green for comparison group
+        elif mean < 2 or mean > 6:  # Abnormal
+            bars[i].set_color('#ff6b6b')  # Red for abnormal
         else:
-            bars[i].set_color('#4cc9f0')
+            bars[i].set_color('#4cc9f0')  # Blue for normal
     
+    # Formatting
     ax.set_title(f"{t('general_behavior')} - {t('comparative_viz')} ({selected_time} min)", fontsize=14, fontweight='bold')
     ax.set_ylabel(f"{t('mean_score')} (0-10)", fontsize=12)
     ax.set_xlabel(t('group'), fontsize=12)
@@ -2100,12 +1710,15 @@ def create_general_behavior_plot(valid_groups, selected_time, mode_eng, animal_t
     ax.set_ylim(0, 10)
     ax.grid(True, alpha=0.3, axis='y')
     
+    # Add threshold lines
     ax.axhline(y=2, color='gray', linestyle='--', alpha=0.7, label='Lower threshold')
     ax.axhline(y=6, color='gray', linestyle='--', alpha=0.7, label='Upper threshold')
     
+    # Add value labels
     for i, (mean, std) in enumerate(zip(overall_means, overall_stds)):
         ax.text(i, mean + std + 0.2, f"{mean:.2f}", ha='center', va='bottom', fontweight='bold')
     
+    # Add legend
     from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor='#28a745', label=t('comparison_group')),
@@ -2121,6 +1734,7 @@ def create_body_temperature_line_plot(selected_groups, mode_eng, animal_type, nu
     """Create line plot for Body Temperature mode"""
     fig, ax = plt.subplots(figsize=(14, 8))
     
+    # Colors for different groups
     colors = plt.cm.tab10(np.linspace(0, 1, len(selected_groups)))
     
     for idx, group in enumerate(selected_groups):
@@ -2128,6 +1742,7 @@ def create_body_temperature_line_plot(selected_groups, mode_eng, animal_type, nu
         if worksheet_key in st.session_state:
             df = st.session_state[worksheet_key]
             
+            # Get unique times and sort them
             times = sorted(df['time'].unique())
             mean_temps = []
             std_temps = []
@@ -2137,6 +1752,7 @@ def create_body_temperature_line_plot(selected_groups, mode_eng, animal_type, nu
                 all_temps = []
                 
                 for _, row in time_df.iterrows():
+                    # Collect all animal temperatures
                     for i in range(1, num_animals + 1):
                         if f'{animal_type}_{i}' in row:
                             try:
@@ -2152,6 +1768,7 @@ def create_body_temperature_line_plot(selected_groups, mode_eng, animal_type, nu
                     mean_temps.append(np.nan)
                     std_temps.append(0)
             
+            # Plot line with error bars
             line_style = '-' if group != comparison_group else '--'
             line_width = 2 if group != comparison_group else 3
             marker = 'o' if group != comparison_group else 's'
@@ -2166,14 +1783,17 @@ def create_body_temperature_line_plot(selected_groups, mode_eng, animal_type, nu
                        capsize=5,
                        alpha=0.8)
     
+    # Add normal range
     ax.axhspan(36, 38, alpha=0.2, color='green', label='Normal range (36-38°C)')
     
+    # Formatting
     ax.set_title(f"{t('body_temperature')} - {t('comparative_viz')} ({t('all_time_points')})", fontsize=16, fontweight='bold')
     ax.set_xlabel(f"{t('time')} (min)", fontsize=12)
     ax.set_ylabel("Temperature (°C)", fontsize=12)
     ax.grid(True, alpha=0.3)
     ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     
+    # Set y-axis limits
     ax.set_ylim(34, 40)
     
     plt.tight_layout()
@@ -2181,13 +1801,15 @@ def create_body_temperature_line_plot(selected_groups, mode_eng, animal_type, nu
 
 def create_binary_score_line_plot(selected_groups, mode_eng, animal_type, num_animals, comparison_group):
     """Create line plot for binary (Normal/Abnormal) scoring modes"""
+    # Get observations for this mode
     if mode_eng == "Autonomic and Sensorimotor Functions":
         observations = AUTONOMIC_OBSERVATIONS
     elif mode_eng == "Reflex Capabilities":
         observations = REFLEX_OBSERVATIONS
-    else:
+    else:  # Convulsive Behaviors
         observations = CONVULSIVE_OBSERVATIONS
     
+    # Create subplot for each observation
     n_obs = len(observations)
     n_cols = 3
     n_rows = (n_obs + n_cols - 1) // n_cols
@@ -2197,6 +1819,7 @@ def create_binary_score_line_plot(selected_groups, mode_eng, animal_type, num_an
         axes = axes.reshape(1, -1)
     axes = axes.flatten()
     
+    # Colors for different groups
     colors = plt.cm.tab10(np.linspace(0, 1, len(selected_groups)))
     
     for obs_idx, obs in enumerate(observations):
@@ -2207,6 +1830,7 @@ def create_binary_score_line_plot(selected_groups, mode_eng, animal_type, num_an
             if worksheet_key in st.session_state:
                 df = st.session_state[worksheet_key]
                 
+                # Filter for this observation
                 obs_df = df[df['observation'] == obs]
                 times = sorted(obs_df['time'].unique())
                 percentages = []
@@ -2229,6 +1853,7 @@ def create_binary_score_line_plot(selected_groups, mode_eng, animal_type, num_an
                     else:
                         percentages.append(0)
                 
+                # Plot line
                 line_style = '-' if group != comparison_group else '--'
                 line_width = 2 if group != comparison_group else 3
                 marker = 'o' if group != comparison_group else 's'
@@ -2242,756 +1867,654 @@ def create_binary_score_line_plot(selected_groups, mode_eng, animal_type, num_an
                        markersize=6,
                        alpha=0.8)
         
+        # Formatting
         ax.set_title(t_obs(obs), fontsize=12, fontweight='bold')
         ax.set_xlabel(f"{t('time')} (min)", fontsize=10)
         ax.set_ylabel(f"{t('percentage_abnormal')} (%)", fontsize=10)
         ax.set_ylim(-5, 105)
         ax.grid(True, alpha=0.3)
         
+        # Add legend only to first subplot
         if obs_idx == 0:
             ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
     
+    # Hide unused subplots
     for idx in range(n_obs, len(axes)):
         axes[idx].set_visible(False)
     
+    # Overall title
     mode_title = mode_eng.replace("and Sensorimotor Functions", "")
     fig.suptitle(f"{mode_title} - {t('comparative_viz')} ({t('all_time_points')})", fontsize=16, fontweight='bold')
     
     plt.tight_layout()
     return fig
 
-# ====================== AUTHENTICATION UI ======================
-def show_auth_page():
-    """Show authentication page"""
-    st.markdown("<h1 style='text-align: center;'>🐭 FOB Test</h1>", unsafe_allow_html=True)
-    st.markdown("<h3 style='text-align: center;'>Secure Cloud-Based Analysis Platform</h3>", unsafe_allow_html=True)
+# Template Section
+with st.expander(t('download_templates'), expanded=False):
+    st.markdown(f"""
+    ### {t('download_templates')}
+    """)
     
-    tab1, tab2 = st.tabs([t('login'), t('register')])
+    # Mode selection for template
+    template_mode = st.radio(t('template_type'), 
+                            [t('general_behavior'), t('autonomic_functions'), 
+                             t('reflex_capabilities'), t('body_temperature'),
+                             t('body_weight'), t('convulsive_behaviors')],
+                            index=0,
+                            horizontal=True)
     
-    with tab1:
-        with st.form("login_form"):
-            st.subheader(t('login'))
-            username = st.text_input(t('username'))
-            password = st.text_input(t('password'), type="password")
-            submit = st.form_submit_button(t('login'), use_container_width=True)
-            
-            if submit:
-                if username and password:
-                    success, result = authenticate_user(username, password)
-                    if success:
-                        st.session_state.authenticated = True
-                        st.session_state.username = username
-                        st.session_state.user_data = result
-                        st.success(f"{t('welcome')}, {result['name']}!")
-                        st.rerun()
-                    else:
-                        st.error(result)
-                else:
-                    st.error("Please enter both username and password")
+    # Map back to English for internal use
+    mode_map = {
+        t('general_behavior'): "General Behavior",
+        t('autonomic_functions'): "Autonomic and Sensorimotor Functions",
+        t('reflex_capabilities'): "Reflex Capabilities",
+        t('body_temperature'): "Body Temperature",
+        t('body_weight'): "Body Weight",
+        t('convulsive_behaviors'): "Convulsive Behaviors and Excitability"
+    }
+    template_mode_eng = mode_map[template_mode]
     
-    with tab2:
-        with st.form("register_form"):
-            st.subheader(t('register'))
-            new_username = st.text_input(t('username'), key="reg_username")
-            new_password = st.text_input(t('password'), type="password", key="reg_password")
-            confirm_password = st.text_input("Confirm Password", type="password")
-            email = st.text_input(t('email'))
-            name = st.text_input(t('name'))
-            submit_reg = st.form_submit_button(t('register'), use_container_width=True)
-            
-            if submit_reg:
-                if new_username and new_password and email and name:
-                    if new_password != confirm_password:
-                        st.error("Passwords do not match")
-                    elif len(new_password) < 6:
-                        st.error("Password must be at least 6 characters")
-                    else:
-                        success, message = register_user(new_username, new_password, email, name)
-                        if success:
-                            st.success(message + " Please login.")
-                        else:
-                            st.error(message)
-                else:
-                    st.error("Please fill all fields")
-
-# ====================== MAIN DASHBOARD ======================
-def show_dashboard():
-    """Show main dashboard for authenticated users"""
-    
-    with st.sidebar:
-        st.markdown(f"### {t('welcome')}, {st.session_state.user_data['name']}!")
-        st.markdown(f"**{t('username')}:** {st.session_state.username}")
-        
-        st.markdown("---")
-        
-        st.selectbox(
-            t('language'),
-            options=['en', 'zh'],
-            format_func=lambda x: 'English' if x == 'en' else '中文',
-            key='language'
-        )
-        
-        st.markdown("---")
-        st.markdown("### ☁️ Cloud Storage")
-        
-        if st.button(t('save_to_cloud'), use_container_width=True):
-            project_data = {
-                'projects': st.session_state.get('projects', {}),
-                'active_project': st.session_state.get('active_project', None),
-                'experiments': st.session_state.get('experiments', {}),
-                'worksheets': {k: v for k, v in st.session_state.items() if k.startswith('worksheet_')},
-                'comparison_groups': st.session_state.get('comparison_groups', {})
-            }
-
-            # Loop through all projects to save each one separately
-            for project_id, project in st.session_state.projects.items():
-                project_data['active_project'] = project_id  # Save only the data of the active project
-
-                if save_project_state(st.session_state.username, project_data):
-                    st.success(f"Project '{project['name']}' state saved to cloud!")
-
-# When loading from the cloud
-        if st.button(t('load_from_cloud'), use_container_width=True):
-            # List available projects for the user to choose from
-            available_projects = list(st.session_state.projects.keys())  # Get the keys of all projects
-            selected_project = st.selectbox('Select a project to load', available_projects)
-
-            saved_data = load_project_state(st.session_state.username, selected_project)
-            if saved_data:
-                # Load the selected project state
-                st.session_state.projects = saved_data.get('projects', {})
-                st.session_state.active_project = selected_project  # Set the active project
-                st.session_state.experiments = saved_data.get('experiments', {})
-                st.session_state.comparison_groups = saved_data.get('comparison_groups', {})
-
-                # Load worksheets specific to the selected project
-                for key, value in saved_data.get('worksheets', {}).items():
-                    if key.startswith(f"worksheet_{selected_project}_"):
-                        st.session_state[key] = value
-
-                st.success(f"Project '{selected_project}' state loaded from cloud!")
-            else:
-                st.info("No saved state found for the selected project")
-
-
-        
-        st.markdown("---")
-        st.markdown("### 📁 " + t('my_files'))
-
-        current_project_name = get_active_project_name()
-        st.caption(f"Listing files for project: **{current_project_name}**")
-
-        with st.expander(t('saved_figures')):
-            figures = list_user_files(st.session_state.username, "figures", project_name=current_project_name)
-            if figures:
-                for fig in figures:
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.text(fig['name'])
-                    with col2:
-                        if st.button("📥", key=f"dl_{fig['key']}"):
-                            s3_client = get_s3_client()
-                            if s3_client:
-                                url = s3_client.generate_presigned_url(
-                                    'get_object',
-                                    Params={'Bucket': S3_BUCKET_NAME, 'Key': fig['key']},
-                                    ExpiresIn=3600
-                                )
-                                st.markdown(f"[Download]({url})")
-            else:
-                st.info("No saved figures")
-        
-        with st.expander(t('saved_data')):
-            data_files = list_user_files(st.session_state.username, "data", project_name=current_project_name)
-            if data_files:
-                for file in data_files:
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.text(file['name'])
-                    with col2:
-                        if st.button("📥", key=f"dl_data_{file['key']}"):
-                            s3_client = get_s3_client()
-                            if s3_client:
-                                url = s3_client.generate_presigned_url(
-                                    'get_object',
-                                    Params={'Bucket': S3_BUCKET_NAME, 'Key': file['key']},
-                                    ExpiresIn=3600
-                                )
-                                st.markdown(f"[Download]({url})")
-            else:
-                st.info("No saved data files")
-        
-        st.markdown("---")
-        
-        if st.button(t('logout'), use_container_width=True, type="secondary"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-    
-    st.title(t('main_title'))
-    st.markdown(t('main_subtitle'))
-    
-    # Template Section
-    with st.expander(t('download_templates'), expanded=False):
-        st.markdown(f"### {t('download_templates')}")
-        
-        template_mode = st.radio(t('template_type'), 
-                                [t('general_behavior'), t('autonomic_functions'), 
-                                 t('reflex_capabilities'), t('body_temperature'),
-                                 t('body_weight'), t('convulsive_behaviors')],
-                                index=0,
-                                horizontal=True)
-        
-        mode_map = {
-            t('general_behavior'): "General Behavior",
-            t('autonomic_functions'): "Autonomic and Sensorimotor Functions",
-            t('reflex_capabilities'): "Reflex Capabilities",
-            t('body_temperature'): "Body Temperature",
-            t('body_weight'): "Body Weight",
-            t('convulsive_behaviors'): "Convulsive Behaviors and Excitability"
-        }
-        template_mode_eng = mode_map[template_mode]
-        
-        col_temp1, col_temp2, col_temp3 = st.columns(3)
-        with col_temp1:
-            template_animal = st.selectbox(t('animal_type'), [t('mouse'), t('rat'), t('custom')], key="template_animal")
-        with col_temp2:
-            if template_animal == t('custom'):
-                template_custom_name = st.text_input(t('custom_animal_name'), value="animal", key="template_custom")
-            else:
-                template_custom_name = None
-        with col_temp3:
-            template_num_animals = st.number_input(t('animals_per_group'), min_value=1, max_value=20, value=8, key="template_num")
-        
-        if template_animal == t('mouse'):
-            template_animal_type = "mouse"
-        elif template_animal == t('rat'):
-            template_animal_type = "rat"
+    # Animal configuration for template
+    col_temp1, col_temp2, col_temp3 = st.columns(3)
+    with col_temp1:
+        template_animal = st.selectbox(t('animal_type'), [t('mouse'), t('rat'), t('custom')], key="template_animal")
+    with col_temp2:
+        if template_animal == t('custom'):
+            template_custom_name = st.text_input(t('custom_animal_name'), value="animal", key="template_custom")
         else:
-            template_animal_type = template_custom_name or "animal"
+            template_custom_name = None
+    with col_temp3:
+        template_num_animals = st.number_input(t('animals_per_group'), min_value=1, max_value=20, value=8, key="template_num")
+    
+    # Determine actual animal type for template
+    if template_animal == t('mouse'):
+        template_animal_type = "mouse"
+    elif template_animal == t('rat'):
+        template_animal_type = "rat"
+    else:
+        template_animal_type = template_custom_name or "animal"
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader(t('csv_template'))
+        template_csv = create_template(template_mode_eng, template_num_animals, template_animal_type)
+        st.dataframe(template_csv.head(5))
         
-        col1, col2 = st.columns(2)
+        # Convert to CSV
+        csv = template_csv.to_csv(index=False).encode('utf-8')
+        
+        st.download_button(
+            label=t('download_csv_template'),
+            data=csv,
+            file_name=f"fob_template_{template_mode_eng.replace(' ', '_')}_{template_animal_type}.csv",
+            mime="text/csv",
+            help="Download CSV template for experiment data"
+        )
+    
+    with col2:
+        st.subheader(t('excel_template'))
+        template_excel = create_template(template_mode_eng, template_num_animals, template_animal_type)
+        st.dataframe(template_excel.head(5))
+        
+        # Create Excel file in memory
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            template_excel.to_excel(writer, index=False, sheet_name='FOB Data')
+        
+        st.download_button(
+            label=t('download_excel_template'),
+            data=output.getvalue(),
+            file_name=f"fob_template_{template_mode_eng.replace(' ', '_')}_{template_animal_type}.xlsx",
+            mime="application/vnd.ms-excel",
+            help="Download Excel template for experiment data"
+        )
+
+# Global fill random data button
+if st.session_state.active_project is not None:
+    project_groups = [exp for exp in st.session_state.experiments.keys() 
+                     if exp.startswith(st.session_state.projects[st.session_state.active_project]['name'])]
+    
+    if project_groups:
+        if st.button(t('fill_all_random'), use_container_width=True, type="secondary"):
+            # Confirm dialog
+            if 'confirm_fill_all' not in st.session_state:
+                st.session_state.confirm_fill_all = True
+                st.rerun()
+
+        if 'confirm_fill_all' in st.session_state and st.session_state.confirm_fill_all:
+            st.warning(t('confirm_fill_all'))
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(t('yes'), use_container_width=True):
+                    filled_count = fill_all_worksheets_with_random_data()
+                    st.success(t('fill_complete'))
+                    del st.session_state.confirm_fill_all
+                    st.rerun()
+            with col2:
+                if st.button(t('no'), use_container_width=True):
+                    del st.session_state.confirm_fill_all
+                    st.rerun()
+
+# Project Creation Section
+if st.button(t('create_project'), key="create_project_btn", use_container_width=True, type="primary"):
+    st.session_state.show_project_creation = True
+
+if 'show_project_creation' in st.session_state and st.session_state.show_project_creation:
+    with st.container():
+        st.subheader(t('configure_project'))
+        
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.subheader(t('csv_template'))
-            template_csv = create_template(template_mode_eng, template_num_animals, template_animal_type)
-            st.dataframe(template_csv.head(5))
-            
-            csv = template_csv.to_csv(index=False).encode('utf-8')
-            
-            st.download_button(
-                label=t('download_csv_template'),
-                data=csv,
-                file_name=f"fob_template_{template_mode_eng.replace(' ', '_')}_{template_animal_type}.csv",
-                mime="text/csv",
-                help="Download CSV template for experiment data"
-            )
+            project_name = st.text_input(t('project_name'), value=f"Project {len(st.session_state.projects) + 1}")
+            animal_type = st.selectbox(t('animal_type'), [t('mouse'), t('rat'), t('custom')])
         
         with col2:
-            st.subheader(t('excel_template'))
-            template_excel = create_template(template_mode_eng, template_num_animals, template_animal_type)
-            st.dataframe(template_excel.head(5))
+            if animal_type == t('custom'):
+                custom_animal_name = st.text_input(t('custom_animal_name'), value="animal")
+            else:
+                custom_animal_name = None
+            num_animals = st.number_input(t('animals_per_group'), min_value=1, max_value=20, value=8)
+        
+        with col3:
+            num_groups = st.number_input(t('num_groups'), min_value=1, max_value=10, value=5)
             
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                template_excel.to_excel(writer, index=False, sheet_name='FOB Data')
+        # Create project button
+        if st.button(t('create'), use_container_width=True):
+            project_id = str(uuid.uuid4())
+            st.session_state.active_project = project_id
             
-            st.download_button(
-                label=t('download_excel_template'),
-                data=output.getvalue(),
-                file_name=f"fob_template_{template_mode_eng.replace(' ', '_')}_{template_animal_type}.xlsx",
-                mime="application/vnd.ms-excel",
-                help="Download Excel template for experiment data"
+            # Map animal type back to English
+            animal_type_map = {t('mouse'): 'mouse', t('rat'): 'rat', t('custom'): 'custom'}
+            animal_type_eng = animal_type_map.get(animal_type, 'mouse')
+            
+            st.session_state.projects[project_id] = {
+                "name": project_name,
+                "animal_type": animal_type_eng,
+                "custom_animal_name": custom_animal_name,
+                "num_animals": num_animals,
+                "num_groups": num_groups
+            }
+            
+            # Create groups
+            for i in range(1, num_groups + 1):
+                group_name = f"{project_name}_Group_{i}"
+                st.session_state.experiments[group_name] = True
+            
+            st.session_state.show_project_creation = False
+            st.success(f"✅ {t('create')} '{project_name}' - {num_groups} groups")
+            st.rerun()
+        
+        if st.button(t('cancel'), use_container_width=True):
+            st.session_state.show_project_creation = False
+            st.rerun()
+
+# Main Content Area
+if st.session_state.active_project is None:
+    st.info(t('start_instruction'))
+else:
+    project = st.session_state.projects[st.session_state.active_project]
+    animal_display = t(project['animal_type'])
+    if project['animal_type'] == 'custom':
+        animal_display = project.get('custom_animal_name', 'animal').capitalize()
+    
+    st.header(f"🔬 {project['name']} - {animal_display} ({project['num_animals']} {t('animals_per_group')})")
+    
+    # Mode Selection
+    st.subheader(t('select_mode'))
+    mode = st.radio(t('choose_mode'), 
+                    [t('general_behavior'), t('autonomic_functions'), 
+                     t('reflex_capabilities'), t('body_temperature'),
+                     t('body_weight'), t('convulsive_behaviors')],
+                    horizontal=True)
+    
+    # Map mode back to English for internal use
+    mode_map = {
+        t('general_behavior'): "General Behavior",
+        t('autonomic_functions'): "Autonomic and Sensorimotor Functions",
+        t('reflex_capabilities'): "Reflex Capabilities",
+        t('body_temperature'): "Body Temperature",
+        t('body_weight'): "Body Weight",
+        t('convulsive_behaviors'): "Convulsive Behaviors and Excitability"
+    }
+    mode_eng = mode_map[mode]
+    st.session_state.mode = mode_eng
+    
+    # Get project-specific groups
+    project_groups = [exp for exp in st.session_state.experiments.keys() 
+                     if exp.startswith(project['name'])]
+    
+    # Select comparison group
+    if project_groups:
+        with st.expander(t('comparison_group'), expanded=True):
+            comparison_group = st.selectbox(
+                t('comparison_group'),
+                project_groups,
+                index=0
             )
+            
+            if st.button(t('set_comparison')):
+                if st.session_state.active_project not in st.session_state.comparison_groups:
+                    st.session_state.comparison_groups[st.session_state.active_project] = []
+                st.session_state.comparison_groups[st.session_state.active_project] = [comparison_group]
+                st.success(f"✅ {comparison_group} {t('set_comparison')}")
+                st.rerun()
+            
+            # Show current comparison group
+            if st.session_state.active_project in st.session_state.comparison_groups:
+                current_comp = st.session_state.comparison_groups[st.session_state.active_project]
+                if current_comp:
+                    st.info(f"{t('comparison_group')}: **{current_comp[0]}**")
     
- # Global fill random data button
-    if st.session_state.active_project is not None:
-        project_groups = [exp for exp in st.session_state.experiments.keys() 
-                        if exp.startswith(st.session_state.projects[st.session_state.active_project]['name'])]
-        
-        if project_groups:
-            # When the button is clicked, directly fill all random data without confirmation
-            if st.button(t('fill_all_random'), use_container_width=True, type="secondary"):
-                filled_count = fill_all_worksheets_with_random_data()
-                st.success(t('fill_complete'))
-                st.rerun()
-
-    # Project Creation Section
-    if st.button(t('create_project'), key="create_project_btn", use_container_width=True, type="primary"):
-        st.session_state.show_project_creation = True
-
-    if 'show_project_creation' in st.session_state and st.session_state.show_project_creation:
-        with st.container():
-            st.subheader(t('configure_project'))
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                project_name = st.text_input(t('project_name'), value=f"Project {len(st.session_state.projects) + 1}")
-                animal_type = st.selectbox(t('animal_type'), [t('mouse'), t('rat'), t('custom')])
-            
-            with col2:
-                if animal_type == t('custom'):
-                    custom_animal_name = st.text_input(t('custom_animal_name'), value="animal")
-                else:
-                    custom_animal_name = None
-                num_animals = st.number_input(t('animals_per_group'), min_value=1, max_value=20, value=8)
-            
-            with col3:
-                num_groups = st.number_input(t('num_groups'), min_value=1, max_value=10, value=5)
-                
-            if st.button(t('create'), use_container_width=True):
-                project_id = str(uuid.uuid4())
-                st.session_state.active_project = project_id
-                
-                animal_type_map = {t('mouse'): 'mouse', t('rat'): 'rat', t('custom'): 'custom'}
-                animal_type_eng = animal_type_map.get(animal_type, 'mouse')
-                
-                st.session_state.projects[project_id] = {
-                    "name": project_name,
-                    "animal_type": animal_type_eng,
-                    "custom_animal_name": custom_animal_name,
-                    "num_animals": num_animals,
-                    "num_groups": num_groups
-                }
-                
-                for i in range(1, num_groups + 1):
-                    group_name = f"{project_name}_Group_{i}"
-                    st.session_state.experiments[group_name] = True
-                
-                st.session_state.show_project_creation = False
-                st.success(f"✅ {t('create')} '{project_name}' - {num_groups} groups")
-                st.rerun()
-            
-            if st.button(t('cancel'), use_container_width=True):
-                st.session_state.show_project_creation = False
-                st.rerun()
+    # Two-column layout for worksheet and visualization
+    col_left, col_right = st.columns([1, 1])
     
-    # Main Content Area
-    if st.session_state.active_project is None:
-        st.info(t('start_instruction'))
-    else:
-        project = st.session_state.projects[st.session_state.active_project]
-        animal_display = t(project['animal_type'])
-        if project['animal_type'] == 'custom':
-            animal_display = project.get('custom_animal_name', 'animal').capitalize()
+    with col_left:
+        # Group Management
+        st.subheader(t('experiment_groups'))
         
-        st.header(f"🔬 {project['name']} - {animal_display} ({project['num_animals']} {t('animals_per_group')})")
-        
-        st.subheader(t('select_mode'))
-        mode = st.radio(t('choose_mode'), 
-                        [t('general_behavior'), t('autonomic_functions'), 
-                         t('reflex_capabilities'), t('body_temperature'),
-                         t('body_weight'), t('convulsive_behaviors')],
-                        horizontal=True)
-        
-        mode_map = {
-            t('general_behavior'): "General Behavior",
-            t('autonomic_functions'): "Autonomic and Sensorimotor Functions",
-            t('reflex_capabilities'): "Reflex Capabilities",
-            t('body_temperature'): "Body Temperature",
-            t('body_weight'): "Body Weight",
-            t('convulsive_behaviors'): "Convulsive Behaviors and Excitability"
-        }
-        mode_eng = mode_map[mode]
-        st.session_state.mode = mode_eng
-        
-        project_groups = [exp for exp in st.session_state.experiments.keys() 
-                         if exp.startswith(project['name'])]
-        
+        # Select group to edit
         if project_groups:
-            with st.expander(t('comparison_group'), expanded=True):
-                comparison_group = st.selectbox(
-                    t('comparison_group'),
-                    project_groups,
-                    index=0
+            selected_exp = st.selectbox(t('select_group_edit'), project_groups)
+            
+            if selected_exp:
+                st.info(t('edit_tip'))
+                
+                # Display worksheet
+                with st.container():
+                    worksheet_df = create_worksheet(mode_eng, selected_exp, project)
+                
+                # Export options
+                csv = worksheet_df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label=t('export_csv'),
+                    data=csv,
+                    file_name=f"{selected_exp}_data.csv",
+                    mime="text/csv"
                 )
-                
-                if st.button(t('set_comparison')):
-                    if st.session_state.active_project not in st.session_state.comparison_groups:
-                        st.session_state.comparison_groups[st.session_state.active_project] = []
-                    st.session_state.comparison_groups[st.session_state.active_project] = [comparison_group]
-                    st.success(f"✅ {comparison_group} {t('set_comparison')}")
+    
+    with col_right:
+        # Visualization and Reporting Section
+        st.subheader(t('data_analysis'))
+        
+        if project_groups:
+            # Select groups to analyze
+            col_sel1, col_sel2 = st.columns([3, 1])
+            
+            with col_sel1:
+                selected_for_viz = st.multiselect(
+                    t('select_analyze'),
+                    project_groups,
+                    default=project_groups
+                )
+            
+            with col_sel2:
+                if st.button(t('select_all'), use_container_width=True):
+                    st.session_state.selected_for_viz = project_groups
                     st.rerun()
-                
-                if st.session_state.active_project in st.session_state.comparison_groups:
-                    current_comp = st.session_state.comparison_groups[st.session_state.active_project]
-                    if current_comp:
-                        st.info(f"{t('comparison_group')}: **{current_comp[0]}**")
-        
-        col_left, col_right = st.columns([1, 1])
-        
-        with col_left:
-            st.subheader(t('experiment_groups'))
             
-            if project_groups:
-                selected_exp = st.selectbox(t('select_group_edit'), project_groups)
-                
-                if selected_exp:
-                    st.info(t('edit_tip'))
-                    
-                    with st.container():
-                        worksheet_df = create_worksheet(mode_eng, selected_exp, project)
-                    
-                    # Export with cloud save option
-                    st.markdown("---")
-                    st.markdown(f"**{t('export_options')}**")
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        csv = worksheet_df.to_csv(index=False).encode('utf-8')
-                        st.download_button(
-                            label=t('export_csv'),
-                            data=csv,
-                            file_name=f"{selected_exp}_data.csv",
-                            mime="text/csv"
-                        )
-                    
-                    with col2:
-                        if st.session_state.get('authenticated', False):
-                            with st.expander(t('save_data_to_cloud')):
-                                default_data_name = f"{selected_exp}_{mode_eng.replace(' ', '_')}_data"
-                                ns = f"{selected_exp}_{mode_eng}".replace(" ", "_")
-                                data_name = st.text_input(
-                                    t('data_name'),
-                                    value=default_data_name,
-                                    key=f"data_name_{ns}"
-                                )
-                                if st.button(t('save_to_cloud'), key=f"save_data_{ns}"):
-                                    save_data_to_cloud_with_name(
-                                        worksheet_df,
-                                        st.session_state.username,
-                                        data_name,
-                                        project_name=project['name']
-                                    )
-
-                                        
-        with col_right:
-            st.subheader(t('data_analysis'))
+            # Use session state if "Select All" was clicked
+            if 'selected_for_viz' in st.session_state:
+                selected_for_viz = st.session_state.selected_for_viz
+                del st.session_state.selected_for_viz
             
-            if project_groups:
-                col_sel1, col_sel2 = st.columns([3, 1])
+            if selected_for_viz:
+                # Generate comprehensive report
+                st.markdown(f"### {t('comparative_report')}")
                 
-                with col_sel1:
-                    selected_for_viz = st.multiselect(
-                        t('select_analyze'),
-                        project_groups,
-                        default=project_groups
-                    )
-                
-                with col_sel2:
-                    if st.button(t('select_all'), use_container_width=True):
-                        st.session_state.selected_for_viz = project_groups
-                        st.rerun()
-                
-                if 'selected_for_viz' in st.session_state:
-                    selected_for_viz = st.session_state.selected_for_viz
-                    del st.session_state.selected_for_viz
-                
-                if selected_for_viz:
-                    st.markdown(f"### {t('comparative_report')}")
+                # Special handling for Body Weight mode
+                if mode_eng == "Body Weight":
+                    # Collect weight change data
+                    weight_change_data = []
                     
+                    # Get animal info
                     animal_type = project.get('animal_type', 'mouse')
                     if animal_type == 'custom':
                         animal_type = project.get('custom_animal_name', 'animal')
                     num_animals = project.get('num_animals', 8)
                     
+                    # Identify comparison group
                     comp_group = None
                     if st.session_state.active_project in st.session_state.comparison_groups:
                         comp_groups = st.session_state.comparison_groups[st.session_state.active_project]
                         if comp_groups and comp_groups[0] in selected_for_viz:
                             comp_group = comp_groups[0]
                     
-                    if mode_eng == "Body Weight":
-                        weight_change_data = []
-                        
-                        for exp in selected_for_viz:
-                            worksheet_key = f"worksheet_{exp}_{mode_eng}"
-                            if worksheet_key in st.session_state:
-                                df = st.session_state[worksheet_key]
+                    # Analyze each group for weight changes
+                    for exp in selected_for_viz:
+                        worksheet_key = f"worksheet_{exp}_{mode_eng}"
+                        if worksheet_key in st.session_state:
+                            df = st.session_state[worksheet_key]
+                            
+                            before_df = df[df['time'] == 'before']
+                            after_df = df[df['time'] == 'after']
+                            
+                            if not before_df.empty and not after_df.empty:
+                                total_change = 0
+                                percent_changes = []
                                 
-                                before_df = df[df['time'] == 'before']
-                                after_df = df[df['time'] == 'after']
+                                for i in range(1, num_animals + 1):
+                                    animal_col = f'{animal_type}_{i}'
+                                    if animal_col in before_df.columns:
+                                        try:
+                                            before_weight = float(before_df.iloc[0][animal_col])
+                                            after_weight = float(after_df.iloc[0][animal_col])
+                                            change = after_weight - before_weight
+                                            percent_change = (change / before_weight) * 100
+                                            total_change += change
+                                            percent_changes.append(percent_change)
+                                        except (ValueError, TypeError):
+                                            continue
                                 
-                                if not before_df.empty and not after_df.empty:
-                                    total_change = 0
-                                    percent_changes = []
+                                if percent_changes:
+                                    mean_change = total_change / len(percent_changes)
+                                    mean_percent = np.mean(percent_changes)
                                     
-                                    for i in range(1, num_animals + 1):
-                                        animal_col = f'{animal_type}_{i}'
-                                        if animal_col in before_df.columns:
-                                            try:
-                                                before_weight = float(before_df.iloc[0][animal_col])
-                                                after_weight = float(after_df.iloc[0][animal_col])
-                                                change = after_weight - before_weight
-                                                percent_change = (change / before_weight) * 100
-                                                total_change += change
-                                                percent_changes.append(percent_change)
-                                            except (ValueError, TypeError):
-                                                continue
+                                    status = t('weight_loss') if mean_change < 0 else (t('weight_gain') if mean_change > 0 else t('no_change'))
                                     
-                                    if percent_changes:
-                                        mean_change = total_change / len(percent_changes)
-                                        mean_percent = np.mean(percent_changes)
-                                        
-                                        status = t('weight_loss') if mean_change < 0 else (t('weight_gain') if mean_change > 0 else t('no_change'))
-                                        
-                                        weight_change_data.append({
-                                            t('group'): exp,
-                                            t('is_comparison'): '✓' if exp == comp_group else '',
-                                            f"{t('mean_weight')} {t('change_g')}": f"{mean_change:.2f}",
-                                            f"{t('mean_weight')} {t('percent_change')}": f"{mean_percent:.2f}%",
-                                            t('status'): status
-                                        })
-                        
-                        if weight_change_data:
-                            st.markdown(f"#### {t('group_summary')}")
-                            weight_summary_df = pd.DataFrame(weight_change_data)
-                            st.dataframe(
-                                weight_summary_df,
-                                use_container_width=True,
-                                hide_index=True,
-                                column_config={
-                                    t('is_comparison'): st.column_config.TextColumn(t('comparison_group'), width="small")
-                                }
-                            )
+                                    weight_change_data.append({
+                                        t('group'): exp,
+                                        t('is_comparison'): '✓' if exp == comp_group else '',
+                                        f"{t('mean_weight')} {t('change_g')}": f"{mean_change:.2f}",
+                                        f"{t('mean_weight')} {t('percent_change')}": f"{mean_percent:.2f}%",
+                                        t('status'): status
+                                    })
                     
-                    else:
-                        all_abnormal_episodes = {}
-                        comparison_data = []
-                        
-                        for exp in selected_for_viz:
-                            worksheet_key = f"worksheet_{exp}_{mode_eng}"
-                            if worksheet_key in st.session_state:
-                                df = st.session_state[worksheet_key]
-                                
-                                episodes_df = process_data_with_episodes(df, mode_eng, animal_type, num_animals)
-                                if not episodes_df.empty:
-                                    all_abnormal_episodes[exp] = episodes_df
-                                
-                                group_data = {
-                                    t('group'): exp,
-                                    t('is_comparison'): '✓' if exp == comp_group else '',
-                                    t('total_episodes'): len(episodes_df) if not episodes_df.empty else 0,
-                                    t('affected_obs'): ', '.join(episodes_df[t('observation')].unique()) if not episodes_df.empty else t('none')
-                                }
-                                comparison_data.append(group_data)
-                        
+                    # Display weight change summary
+                    if weight_change_data:
                         st.markdown(f"#### {t('group_summary')}")
-                        comparison_df = pd.DataFrame(comparison_data)
+                        weight_summary_df = pd.DataFrame(weight_change_data)
                         st.dataframe(
-                            comparison_df,
+                            weight_summary_df,
                             use_container_width=True,
                             hide_index=True,
                             column_config={
                                 t('is_comparison'): st.column_config.TextColumn(t('comparison_group'), width="small")
                             }
                         )
-                        
-                        st.markdown(f"#### {t('episodes_by_group')}")
-                        
-                        if all_abnormal_episodes:
-                            tabs = st.tabs([f"{group} ({len(episodes)})" for group, episodes in all_abnormal_episodes.items()])
-                            
-                            for i, (group, episodes) in enumerate(all_abnormal_episodes.items()):
-                                with tabs[i]:
-                                    if group == comp_group:
-                                        st.info(t('is_comparison'))
-                                    
-                                    episodes[t('group')] = group
-                                    
-                                    st.dataframe(
-                                        episodes[[t('observation'), t('onset_time'), t('offset_time'), t('duration'), t('peak_score')]],
-                                        use_container_width=True,
-                                        hide_index=True
-                                    )
-                                    
-                                    st.markdown(f"**{t('summary')}**")
-                                    col1, col2, col3 = st.columns(3)
-                                    with col1:
-                                        st.metric(t('total_episodes'), len(episodes))
-                                    with col2:
-                                        st.metric(t('avg_duration'), f"{episodes[t('duration')].mean():.1f} min" if len(episodes) > 0 else "N/A")
-                                    with col3:
-                                        if mode_eng in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
-                                            st.metric(t('max_peak'), episodes[t('peak_score')].max() if len(episodes) > 0 else "N/A")
-                                        else:
-                                            st.metric(t('max_peak'), f"{episodes[t('peak_score')].max():.2f}" if len(episodes) > 0 else "N/A")
-                        else:
-                            st.success(t('no_episodes'))
-                    
-                    st.markdown(f"#### {t('comparative_viz')}")
-                    
-                    fig = create_comparative_plot(selected_for_viz, mode_eng, project, comp_group)
-                    
-                    if fig is not None:
-                        st.pyplot(fig)
-                        
-                        # User-controlled save options
-                        st.markdown("---")
-                        col1, col2, col3 = st.columns([2, 2, 2])
-                        
-                        with col1:
-                            # Local download
-                            plot_bytes = save_plot_as_bytes(fig)
-                            st.download_button(
-                                label=t('download_plot'),
-                                data=plot_bytes,
-                                file_name=f"{project['name']}_{mode_eng.replace(' ', '_')}_plot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                                mime="image/png",
-                                use_container_width=True
-                            )
-                        
-                        with col2:
-                            # Cloud save with custom name (project folder)
-                            if st.session_state.get('authenticated', False):
-                                with st.expander(t('save_plot_to_cloud')):
-                                    default_name = f"{project['name']}_{mode_eng.replace(' ', '_')}_plot"
-                                    ns_plot = f"{project['name']}_{mode_eng}".replace(" ", "_")
-                                    plot_name = st.text_input(
-                                        t('plot_name'),
-                                        value=default_name,
-                                        key=f"plot_name_{ns_plot}"
-                                    )
-                                    if st.button(t('save_to_cloud'), key=f"save_plot_{ns_plot}"):
-                                        save_plot_to_cloud_with_name(
-                                            fig,
-                                            st.session_state.username,
-                                            plot_name,
-                                            project_name=project['name']
-                                        )
-
-                        
-                        plt.close(fig)
-                    
-                    st.markdown(f"#### {t('export_report')}")
-                    
-                    report_data = {
-                        t('project'): project['name'],
-                        t('animal_type'): animal_display,
-                        t('animals_per_group'): project['num_animals'],
-                        t('analysis_mode'): mode,
-                        t('total_groups'): len(selected_for_viz),
-                        t('comparison_group'): comp_group or t('not_set'),
-                        t('report_generated'): datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                    
-                    report_lines = [
-                        t('report_title'),
-                        f"=" * 50,
-                        f"{t('project')}: {report_data[t('project')]}",
-                        f"{t('animal_type')}: {report_data[t('animal_type')]}",
-                        f"{t('animals_per_group')}: {report_data[t('animals_per_group')]}",
-                        f"{t('analysis_mode')}: {report_data[t('analysis_mode')]}",
-                        f"{t('total_groups')}: {report_data[t('total_groups')]}",
-                        f"{t('comparison_group')}: {report_data[t('comparison_group')]}",
-                        f"{t('report_generated')}: {report_data[t('report_generated')]}",
-                        f"",
-                        t('group_summary').upper(),
-                        f"-" * 50
-                    ]
-                    
-                    if mode_eng == "Body Weight" and 'weight_change_data' in locals():
-                        for group_data in weight_change_data:
-                            report_lines.append(f"\n{t('group')}: {group_data[t('group')]}")
-                            if group_data[t('is_comparison')]:
-                                report_lines.append(f"({t('comparison_group').upper()})")
-                            weight_change_key = f"{t('mean_weight')} {t('change_g')}"
-                            percent_change_key = f"{t('mean_weight')} {t('percent_change')}"
-                            report_lines.append(f"{t('mean_weight')} {t('change_g')}: {group_data[weight_change_key]}")
-                            report_lines.append(f"{t('mean_weight')} {t('percent_change')}: {group_data[percent_change_key]}")
-                            report_lines.append(f"{t('status')}: {group_data[t('status')]}")
-                    elif 'comparison_data' in locals():
-                        for group_data in comparison_data:
-                            report_lines.append(f"\n{t('group')}: {group_data[t('group')]}")
-                            if group_data[t('is_comparison')]:
-                                report_lines.append(f"({t('comparison_group').upper()})")
-                            report_lines.append(f"{t('total_episodes')}: {group_data[t('total_episodes')]}")
-                            report_lines.append(f"{t('affected_obs')}: {group_data[t('affected_obs')]}")
-                        
-                        if 'all_abnormal_episodes' in locals() and all_abnormal_episodes:
-                            report_lines.append(f"\n\n{t('detailed_episodes').upper()}")
-                            report_lines.append(f"=" * 50)
-                            
-                            for group, episodes in all_abnormal_episodes.items():
-                                report_lines.append(f"\n{group}:")
-                                report_lines.append(f"-" * 30)
-                                for _, episode in episodes.iterrows():
-                                    report_lines.append(f"  {t('observation')}: {episode[t('observation')]}")
-                                    report_lines.append(f"  {t('onset_time')}: {episode[t('onset_time')]} min")
-                                    report_lines.append(f"  {t('offset_time')}: {episode[t('offset_time')]} min")
-                                    report_lines.append(f"  {t('duration')}: {episode[t('duration')]} min")
-                                    report_lines.append(f"  {t('peak_score')}: {episode[t('peak_score')]}")
-                                    report_lines.append("")
-                    
-                    report_text = "\n".join(report_lines)
-                    
-                    st.download_button(
-                        label=t('download_report'),
-                        data=report_text,
-                        file_name=f"{project['name']}_FOB_Report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                        mime="text/plain"
-                    )
+                
                 else:
-                    st.info(t('select_analyze'))
+                    # Original code for other modes
+                    # Collect all abnormal episodes across groups
+                    all_abnormal_episodes = {}
+                    comparison_data = []
+                    
+                    # Get animal info
+                    animal_type = project.get('animal_type', 'mouse')
+                    if animal_type == 'custom':
+                        animal_type = project.get('custom_animal_name', 'animal')
+                    num_animals = project.get('num_animals', 8)
+                    
+                    # Identify comparison group
+                    comp_group = None
+                    if st.session_state.active_project in st.session_state.comparison_groups:
+                        comp_groups = st.session_state.comparison_groups[st.session_state.active_project]
+                        if comp_groups and comp_groups[0] in selected_for_viz:
+                            comp_group = comp_groups[0]
+                    
+                    # Analyze each group
+                    for exp in selected_for_viz:
+                        worksheet_key = f"worksheet_{exp}_{mode_eng}"
+                        if worksheet_key in st.session_state:
+                            df = st.session_state[worksheet_key]
+                            
+                            # Get abnormal episodes
+                            episodes_df = process_data_with_episodes(df, mode_eng, animal_type, num_animals)
+                            if not episodes_df.empty:
+                                all_abnormal_episodes[exp] = episodes_df
+                            
+                            # Collect comparison data
+                            group_data = {
+                                t('group'): exp,
+                                t('is_comparison'): '✓' if exp == comp_group else '',
+                                t('total_episodes'): len(episodes_df) if not episodes_df.empty else 0,
+                                t('affected_obs'): ', '.join(episodes_df[t('observation')].unique()) if not episodes_df.empty else t('none')
+                            }
+                            comparison_data.append(group_data)
+                    
+                    # Display comparison summary
+                    st.markdown(f"#### {t('group_summary')}")
+                    comparison_df = pd.DataFrame(comparison_data)
+                    st.dataframe(
+                        comparison_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            t('is_comparison'): st.column_config.TextColumn(t('comparison_group'), width="small")
+                        }
+                    )
+                    
+                    # Display detailed abnormal episodes by group
+                    st.markdown(f"#### {t('episodes_by_group')}")
+                    
+                    if all_abnormal_episodes:
+                        # Create tabs for each group with episodes
+                        tabs = st.tabs([f"{group} ({len(episodes)})" for group, episodes in all_abnormal_episodes.items()])
+                        
+                        for i, (group, episodes) in enumerate(all_abnormal_episodes.items()):
+                            with tabs[i]:
+                                if group == comp_group:
+                                    st.info(t('is_comparison'))
+                                
+                                # Add group name to episodes
+                                episodes[t('group')] = group
+                                
+                                # Display episodes
+                                st.dataframe(
+                                    episodes[[t('observation'), t('onset_time'), t('offset_time'), t('duration'), t('peak_score')]],
+                                    use_container_width=True,
+                                    hide_index=True
+                                )
+                                
+                                # Summary statistics for this group
+                                st.markdown(f"**{t('summary')}**")
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric(t('total_episodes'), len(episodes))
+                                with col2:
+                                    st.metric(t('avg_duration'), f"{episodes[t('duration')].mean():.1f} min" if len(episodes) > 0 else "N/A")
+                                with col3:
+                                    if mode_eng in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
+                                        st.metric(t('max_peak'), episodes[t('peak_score')].max() if len(episodes) > 0 else "N/A")
+                                    else:
+                                        st.metric(t('max_peak'), f"{episodes[t('peak_score')].max():.2f}" if len(episodes) > 0 else "N/A")
+                    else:
+                        st.success(t('no_episodes'))
+                
+                # Comparative visualization for ALL modes
+                st.markdown(f"#### {t('comparative_viz')}")
+                
+                # Create plot for the current mode
+                fig = create_comparative_plot(selected_for_viz, mode_eng, project, comp_group)
+                
+                if fig is not None:
+                    # Display the plot
+                    st.pyplot(fig)
+                    
+                    # Add download button for the plot
+                    plot_bytes = save_plot_as_bytes(fig)
+                    st.download_button(
+                        label=t('download_plot'),
+                        data=plot_bytes,
+                        file_name=f"{project['name']}_{mode_eng.replace(' ', '_')}_plot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                        mime="image/png",
+                        use_container_width=True
+                    )
+                    
+                    # Close the figure to free memory
+                    plt.close(fig)
+                
+                # Export comprehensive report
+                st.markdown(f"#### {t('export_report')}")
+                
+                # Prepare report data
+                report_data = {
+                    t('project'): project['name'],
+                    t('animal_type'): animal_display,
+                    t('animals_per_group'): project['num_animals'],
+                    t('analysis_mode'): mode,
+                    t('total_groups'): len(selected_for_viz),
+                    t('comparison_group'): comp_group or t('not_set'),
+                    t('report_generated'): datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+                
+                # Create detailed report
+                report_lines = [
+                    t('report_title'),
+                    f"=" * 50,
+                    f"{t('project')}: {report_data[t('project')]}",
+                    f"{t('animal_type')}: {report_data[t('animal_type')]}",
+                    f"{t('animals_per_group')}: {report_data[t('animals_per_group')]}",
+                    f"{t('analysis_mode')}: {report_data[t('analysis_mode')]}",
+                    f"{t('total_groups')}: {report_data[t('total_groups')]}",
+                    f"{t('comparison_group')}: {report_data[t('comparison_group')]}",
+                    f"{t('report_generated')}: {report_data[t('report_generated')]}",
+                    f"",
+                    t('group_summary').upper(),
+                    f"-" * 50
+                ]
+                
+                # Add mode-specific content
+                if mode_eng == "Body Weight":
+                    # Add weight change summaries
+                    for group_data in weight_change_data:
+                        report_lines.append(f"\n{t('group')}: {group_data[t('group')]}")
+                        if group_data[t('is_comparison')]:
+                            report_lines.append(f"({t('comparison_group').upper()})")
+                        weight_change_key = f"{t('mean_weight')} {t('change_g')}"
+                        percent_change_key = f"{t('mean_weight')} {t('percent_change')}"
+                        report_lines.append(f"{t('mean_weight')} {t('change_g')}: {group_data[weight_change_key]}")
+                        report_lines.append(f"{t('mean_weight')} {t('percent_change')}: {group_data[percent_change_key]}")
+                        report_lines.append(f"{t('status')}: {group_data[t('status')]}")
+                else:
+                    # Add group summaries for other modes
+                    for group_data in comparison_data:
+                        report_lines.append(f"\n{t('group')}: {group_data[t('group')]}")
+                        if group_data[t('is_comparison')]:
+                            report_lines.append(f"({t('comparison_group').upper()})")
+                        report_lines.append(f"{t('total_episodes')}: {group_data[t('total_episodes')]}")
+                        report_lines.append(f"{t('affected_obs')}: {group_data[t('affected_obs')]}")
+                    
+                    # Add detailed episodes if available
+                    if 'all_abnormal_episodes' in locals() and all_abnormal_episodes:
+                        report_lines.append(f"\n\n{t('detailed_episodes').upper()}")
+                        report_lines.append(f"=" * 50)
+                        
+                        for group, episodes in all_abnormal_episodes.items():
+                            report_lines.append(f"\n{group}:")
+                            report_lines.append(f"-" * 30)
+                            for _, episode in episodes.iterrows():
+                                report_lines.append(f"  {t('observation')}: {episode[t('observation')]}")
+                                report_lines.append(f"  {t('onset_time')}: {episode[t('onset_time')]} min")
+                                report_lines.append(f"  {t('offset_time')}: {episode[t('offset_time')]} min")
+                                report_lines.append(f"  {t('duration')}: {episode[t('duration')]} min")
+                                report_lines.append(f"  {t('peak_score')}: {episode[t('peak_score')]}")
+                                report_lines.append("")
+                
+                report_text = "\n".join(report_lines)
+                
+                st.download_button(
+                    label=t('download_report'),
+                    data=report_text,
+                    file_name=f"{project['name']}_FOB_Report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    mime="text/plain"
+                )
             else:
-                st.info(t('no_groups'))
-    
-    # Footer
-    st.markdown("---")
-    st.markdown(f"### {t('about_title')}")
-    
-    if st.session_state.language == 'zh':
-        st.markdown("""
-    此增强型交互式FOB测试平台允许您：
-    - **云端存储**：自动保存所有图表和数据到AWS S3
-    - **用户认证**：安全的登录/注册系统
-    - **项目持久化**：保存和加载完整的项目状态
-    - **创建项目**，可自定义动物类型（小鼠、大鼠或自定义）
-    - **指定每组动物数量**（灵活的组大小）
-    - **一次创建多个组**（默认：每个项目5个组）
-    - **指定对照组**作为参考
-    - **一键为所有组的所有模式填充随机数据**
-    - 为具有可自定义组大小的单个动物输入数据
-    - **体重模式**：记录实验前后的体重，自动计算变化
-    - **一般行为模式**：现在包括全面的健康状态观察
-    - **综合报告**所有组的异常参数
-    - **跟踪所有异常事件的起始和结束时间**
-    - **视觉比较组**，突出显示对照组
-    - **为所有分析模式生成图表**，支持下载和云端保存
-    - 导出包含所有异常事件的详细报告
-    - **完整的中英文界面支持**
-    """)
-    else:
-        st.markdown("""
-    This enhanced interactive FOB Test platform allows you to:
-    - **Cloud Storage**: Automatically save all figures and data to AWS S3
-    - **User Authentication**: Secure login/registration system
-    - **Project Persistence**: Save and load complete project states
-    - **Create projects** with customizable animal types (mice, rats, or custom)
-    - **Specify the number of animals** per group (flexible group sizes)
-    - **Create multiple groups at once** (default: 5 groups per project)
-    - **Designate a comparison/control group** for reference
-    - **Fill ALL groups across ALL modes with random data** with one click
-    - Enter data for individual animals with customizable group sizes
-    - **Body Weight mode**: Record weights before and after experiment with automatic change calculations
-    - **General Behavior mode**: Now includes comprehensive health status observations
-    - **Comprehensive reporting** of abnormal parameters across all groups
-    - **Track onset and offset times** for all abnormal episodes
-    - **Compare groups visually** with highlighted comparison group
-    - **Generate plots for ALL analysis modes** with download and cloud save capability
-    - Export detailed reports with all abnormal episodes
-    - **Full Chinese language support** with language switcher
-    """)
+                st.info(t('select_analyze'))
+        else:
+            st.info(t('no_groups'))
 
-# ====================== MAIN APPLICATION ======================
-def main():
-    """Main application entry point"""
-    
-    if not check_authentication():
-        show_auth_page()
-    else:
-        show_dashboard()
+# Footer
+st.markdown("---")
+st.markdown(f"### {t('about_title')}")
 
-if __name__ == "__main__":
-    main()
+# About section based on language
+if st.session_state.language == 'zh':
+    st.markdown("""
+此增强型交互式仪表板允许您：
+- **创建项目**，可自定义动物类型（小鼠、大鼠或自定义）
+- **指定每组动物数量**（灵活的组大小）
+- **一次创建多个组**（默认：每个项目5个组）
+- **指定对照组**作为参考
+- **一键为所有组的所有模式填充随机数据**
+- 为具有可自定义组大小的单个动物输入数据
+- **体重模式**：记录实验前后的体重，自动计算变化
+- **一般行为模式**：现在包括全面的健康状态观察
+- **综合报告**所有组的异常参数
+- **跟踪所有异常事件的起始和结束时间**
+- **视觉比较组**，突出显示对照组
+- **为所有分析模式生成图表**，支持下载
+  - **一般行为**：在选定时间点比较组的条形图
+  - **体温**：显示温度随时间变化趋势的折线图
+  - **体重**：在单个图表中显示实验前后体重对比和变化百分比
+  - **自主神经/反射/惊厥**：显示每种行为异常动物百分比随时间变化的折线图
+- 导出包含所有异常事件的详细报告
+- **完整的中文界面支持**
+
+**评分阈值：**
+- **一般行为**：正常：2-6，异常：<2 或 >6（用于健康状况观察）
+- **自主神经功能**：点击单元格在正常/异常之间切换
+- **反射能力**：点击单元格在正常/异常之间切换
+- **惊厥行为**：点击单元格在正常/异常之间切换
+- **体温**：正常：36-38°C，异常：<36°C 或 >38°C
+- **体重**：记录实验前后数值，自动计算变化和百分比
+
+**提示：**
+- 一般行为现在包括健康状态观察（探索、理毛、警觉性、状态等）
+- 对于严重状况（状态不佳、濒死、死亡），使用8分或更高分数
+- 对于自主神经、反射和惊厥模式：只需点击任何单元格即可在正常（默认）和异常（红色）之间切换
+- 体重模式在单个综合图表中显示体重变化及百分比变化
+- 折线图显示体温、自主神经、反射和惊厥模式的行为趋势
+- 选择要在折线图中显示的组以便更好地比较
+- 在项目创建时创建多个组以提高效率
+- 将一个组设置为对照组作为参考
+- 使用综合报告识别组间差异
+- 导出报告和图表用于文档记录和进一步分析
+- 使用"填充所有组随机数据"快速测试功能
+""")
+else:
+    st.markdown("""
+This enhanced interactive dashboard allows you to:
+- **Create projects** with customizable animal types (mice, rats, or custom)
+- **Specify the number of animals** per group (flexible group sizes)
+- **Create multiple groups at once** (default: 5 groups per project)
+- **Designate a comparison/control group** for reference
+- **Fill ALL groups across ALL modes with random data** with one click
+- Enter data for individual animals with customizable group sizes
+- **Body Weight mode**: Record weights before and after experiment with automatic change calculations
+- **General Behavior mode**: Now includes comprehensive health status observations
+- **Comprehensive reporting** of abnormal parameters across all groups
+- **Track onset and offset times** for all abnormal episodes
+- **Compare groups visually** with highlighted comparison group
+- **Generate plots for ALL analysis modes** with download capability
+  - **General Behavior**: Bar charts comparing groups at selected time points
+  - **Body Temperature**: Line charts showing temperature trends over time
+  - **Body Weight**: Single comprehensive chart showing before/after weights and percentage changes
+  - **Autonomic/Reflex/Convulsive**: Line charts showing percentage of abnormal animals for each behavior over time
+- Export detailed reports with all abnormal episodes
+- **Full Chinese language support** with language switcher
+
+**Scoring Thresholds:**
+- **General Behavior**: Normal: 2-6, Abnormal: <2 or >6 (for health condition observations)
+- **Autonomic Functions**: Click cells to toggle between Normal/Abnormal
+- **Reflex Capabilities**: Click cells to toggle between Normal/Abnormal
+- **Convulsive Behaviors**: Click cells to toggle between Normal/Abnormal
+- **Body Temperature**: Normal: 36-38°C, Abnormal: <36°C or >38°C
+- **Body Weight**: Records before/after values and calculates changes automatically
+
+**Tips:**
+- General Behavior now includes health status observations (exploration, grooming, alertness, condition, etc.)
+- For severe conditions (bad condition, moribund, dead), use scores of 8 or higher
+- For Autonomic, Reflex, and Convulsive modes: Simply click any cell to toggle between Normal (default) and Abnormal (red)
+- Body Weight mode shows weight changes in a single comprehensive chart with percentage changes
+- Line charts show behavior trends over time for Body Temperature, Autonomic, Reflex, and Convulsive modes
+- Select which groups to display in line charts for better comparison
+- Create multiple groups at project creation for efficient setup
+- Set one group as the comparison group for reference
+- Use the comprehensive report to identify differences between groups
+- Export reports and plots for documentation and further analysis
+- Use "Fill ALL Groups with Random Data" to quickly test functionality
+- Download individual plots for presentations and publications
+- All plots are automatically generated based on the selected analysis mode
+""")
