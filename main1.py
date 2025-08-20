@@ -1131,8 +1131,8 @@ def create_powerpoint_presentation(project_data, mode_eng, language='en', file_s
 # Language translations - Updated with Body Weight mode
 TRANSLATIONS = {
     'en': {
-        'page_title': 'FOB Test Analysis Dashboard',
-        'main_title': 'FOB Test Analysis Dashboard',
+        'page_title': 'FOB Test',
+        'main_title': 'FOB Test',
         'main_subtitle': 'Visualize and compare Functional Observational Battery (FOB) test results across multiple groups',
         'language': 'Language',
         'create_project': 'Create New Project',
@@ -1208,7 +1208,6 @@ TRANSLATIONS = {
         'excel_template': 'Excel Template',
         'download_csv_template': 'Download CSV Template',
         'download_excel_template': 'Download Excel Template',
-        'about_title': 'About this Dashboard',
         'tips': 'Tips:',
         'unsaved_changes': 'You have unsaved changes!',
         'changes_saved': 'Changes saved successfully!',
@@ -1228,9 +1227,6 @@ TRANSLATIONS = {
         'no_groups': 'No groups created yet',
         'filling_all': 'Filling all worksheets with random data...',
         'fill_complete': 'All worksheets filled with random data!',
-        'confirm_fill_all': 'This will fill random data for ALL groups across ALL analysis modes. Continue?',
-        'yes': 'Yes',
-        'no': 'No',
         'download_plot': 'Download Plot',
         'abnormal_count': 'Abnormal Count',
         'binary_instruction': '**Instructions**: Click on any cell to toggle between Normal (default) and Abnormal (red). Each observation is assessed as either Normal or Abnormal for each animal.',
@@ -1271,8 +1267,8 @@ TRANSLATIONS = {
         'chat_help': 'Ask questions about FOB testing, data analysis, or dashboard features'
     },
     'zh': {
-        'page_title': 'FOB测试分析仪表板',
-        'main_title': 'FOB测试分析仪表板',
+        'page_title': 'FOB测试',
+        'main_title': 'FOB测试',
         'main_subtitle': '可视化并比较多组功能观察电池（FOB）测试结果',
         'language': '语言',
         'create_project': '创建新项目',
@@ -1348,7 +1344,6 @@ TRANSLATIONS = {
         'excel_template': 'Excel模板',
         'download_csv_template': '下载CSV模板',
         'download_excel_template': '下载Excel模板',
-        'about_title': '关于此仪表板',
         'tips': '提示：',
         'unsaved_changes': '您有未保存的更改！',
         'changes_saved': '更改已成功保存！',
@@ -1368,9 +1363,6 @@ TRANSLATIONS = {
         'no_groups': '尚未创建组',
         'filling_all': '正在为所有工作表填充随机数据...',
         'fill_complete': '所有工作表已填充随机数据！',
-        'confirm_fill_all': '这将为所有分析模式下的所有组填充随机数据。是否继续？',
-        'yes': '是',
-        'no': '否',
         'download_plot': '下载图表',
         'abnormal_count': '异常计数',
         'binary_instruction': '**说明**：点击任意单元格在正常（默认）和异常（红色）之间切换。每个观察项对每只动物评估为正常或异常。',
@@ -1523,7 +1515,7 @@ def t_obs(key):
 
 # Set up the page
 st.set_page_config(
-    page_title=t('page_title'),
+    page_title="FOB Test",
     page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1630,7 +1622,7 @@ set_custom_style()
 
 # Sidebar
 with st.sidebar:
-    st.title("🔬 FOB Dashboard")
+    st.title("🔬 FOB Test")
     
     # Language selection
     st.subheader("Language")
@@ -3992,24 +3984,9 @@ if st.session_state.active_project is not None:
     
     if project_groups:
         if st.button(t('fill_all_random'), use_container_width=True, type="secondary"):
-            # Confirm dialog
-            if 'confirm_fill_all' not in st.session_state:
-                st.session_state.confirm_fill_all = True
-                st.rerun()
-
-        if 'confirm_fill_all' in st.session_state and st.session_state.confirm_fill_all:
-            st.warning(t('confirm_fill_all'))
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button(t('yes'), use_container_width=True):
-                    filled_count = fill_all_worksheets_with_random_data()
-                    st.success(t('fill_complete'))
-                    del st.session_state.confirm_fill_all
-                    st.rerun()
-            with col2:
-                if st.button(t('no'), use_container_width=True):
-                    del st.session_state.confirm_fill_all
-                    st.rerun()
+            filled_count = fill_all_worksheets_with_random_data()
+            st.success(t('fill_complete'))
+            st.rerun()
 
 # Project Creation Modal (appears when triggered from sidebar)
 if 'show_project_creation' in st.session_state and st.session_state.show_project_creation:
@@ -4472,100 +4449,3 @@ else:
 
 # Footer
 st.markdown("---")
-st.markdown(f"### {t('about_title')}")
-
-# About section based on language
-if st.session_state.language == 'zh':
-    st.markdown("""
-此增强型交互式仪表板允许您：
-- **创建项目**，可自定义动物类型（小鼠、大鼠或自定义）
-- **指定每组动物数量**（灵活的组大小）
-- **一次创建多个组**（默认：每个项目5个组）
-- **指定对照组**作为参考
-- **一键为所有组的所有模式填充随机数据**
-- 为具有可自定义组大小的单个动物输入数据
-- **体重模式**：记录实验前后的体重，自动计算变化
-- **一般行为模式**：现在包括全面的健康状态观察
-- **综合报告**所有组的异常参数
-- **跟踪所有异常事件的起始和结束时间**
-- **视觉比较组**，突出显示对照组
-- **为所有分析模式生成图表**，支持下载
-  - **一般行为**：在选定时间点比较组的条形图
-  - **体温**：显示温度随时间变化趋势的折线图
-  - **体重**：在单个图表中显示实验前后体重对比和变化百分比
-  - **自主神经/反射/惊厥**：显示每种行为异常动物百分比随时间变化的折线图
-- 导出包含所有异常事件的详细报告
-- **AI智能分析报告**使用Google Gemini AI
-- **完整的中文界面支持**
-
-**评分阈值：**
-- **一般行为**：正常：2-6，异常：<2 或 >6（用于健康状况观察）
-- **自主神经功能**：点击单元格在正常/异常之间切换
-- **反射能力**：点击单元格在正常/异常之间切换
-- **惊厥行为**：点击单元格在正常/异常之间切换
-- **体温**：正常：36-38°C，异常：<36°C 或 >38°C
-- **体重**：记录实验前后数值，自动计算变化和百分比
-
-**提示：**
-- 一般行为现在包括健康状态观察（探索、理毛、警觉性、状态等）
-- 对于严重状况（状态不佳、濒死、死亡），使用8分或更高分数
-- 对于自主神经、反射和惊厥模式：只需点击任何单元格即可在正常（默认）和异常（红色）之间切换
-- 体重模式在单个综合图表中显示体重变化及百分比变化
-- 折线图显示体温、自主神经、反射和惊厥模式的行为趋势
-- 选择要在折线图中显示的组以便更好地比较
-- 在项目创建时创建多个组以提高效率
-- 将一个组设置为对照组作为参考
-- 使用综合报告识别组间差异
-- 导出报告和图表用于文档记录和进一步分析
-- 使用"填充所有组随机数据"快速测试功能
-- 使用AI智能报告获得专业分析和洞察
-- 从Google AI Studio获取Gemini API密钥以生成AI报告
-""")
-else:
-    st.markdown("""
-This enhanced interactive dashboard allows you to:
-- **Create projects** with customizable animal types (mice, rats, or custom)
-- **Specify the number of animals** per group (flexible group sizes)
-- **Create multiple groups at once** (default: 5 groups per project)
-- **Designate a comparison/control group** for reference
-- **Fill ALL groups across ALL modes with random data** with one click
-- Enter data for individual animals with customizable group sizes
-- **Body Weight mode**: Record weights before and after experiment with automatic change calculations
-- **General Behavior mode**: Now includes comprehensive health status observations
-- **Comprehensive reporting** of abnormal parameters across all groups
-- **Track onset and offset times** for all abnormal episodes
-- **Compare groups visually** with highlighted comparison group
-- **Generate plots for ALL analysis modes** with download capability
-  - **General Behavior**: Bar charts comparing groups at selected time points
-  - **Body Temperature**: Line charts showing temperature trends over time
-  - **Body Weight**: Single comprehensive chart showing before/after weights and percentage changes
-  - **Autonomic/Reflex/Convulsive**: Line charts showing percentage of abnormal animals for each behavior over time
-- Export detailed reports with all abnormal episodes
-- **AI-powered analysis reports** using Google Gemini AI
-- **Full Chinese language support** with language switcher
-
-**Scoring Thresholds:**
-- **General Behavior**: Normal: 2-6, Abnormal: <2 or >6 (for health condition observations)
-- **Autonomic Functions**: Click cells to toggle between Normal/Abnormal
-- **Reflex Capabilities**: Click cells to toggle between Normal/Abnormal
-- **Convulsive Behaviors**: Click cells to toggle between Normal/Abnormal
-- **Body Temperature**: Normal: 36-38°C, Abnormal: <36°C or >38°C
-- **Body Weight**: Records before/after values and calculates changes automatically
-
-**Tips:**
-- General Behavior now includes health status observations (exploration, grooming, alertness, condition, etc.)
-- For severe conditions (bad condition, moribund, dead), use scores of 8 or higher
-- For Autonomic, Reflex, and Convulsive modes: Simply click any cell to toggle between Normal (default) and Abnormal (red)
-- Body Weight mode shows weight changes in a single comprehensive chart with percentage changes
-- Line charts show behavior trends over time for Body Temperature, Autonomic, Reflex, and Convulsive modes
-- Select which groups to display in line charts for better comparison
-- Create multiple groups at project creation for efficient setup
-- Set one group as the comparison group for reference
-- Use the comprehensive report to identify differences between groups
-- Export reports and plots for documentation and further analysis
-- Use "Fill ALL Groups with Random Data" to quickly test functionality
-- Download individual plots for presentations and publications
-- All plots are automatically generated based on the selected analysis mode
-- Use AI-powered reports for professional analysis and insights
-- Get Gemini API key from Google AI Studio for AI report generation
-""")
