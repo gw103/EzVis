@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib import font_manager
 import platform
-import google.generativeai as genai
+from deepseek_ai import DeepSeekAI
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
@@ -78,25 +78,59 @@ if 'show_project_creation' not in st.session_state:
 if 'comparison_groups' not in st.session_state:
     st.session_state.comparison_groups = {}
 
-# Gemini AI Configuration
-GEMINI_API_KEY = "AIzaSyBkw6dqrouC-Jl8Xe3QiyP83lOQTPdWYmQ"
+# DeepSeek AI Configuration
+# Get your API key from: https://platform.deepseek.com/
+# Replace the placeholder with your actual API key
+# You can also set it as an environment variable: DEEPSEEK_API_KEY
+import os
+import time
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-16231cff5f244f0a898972cd1e4d0bf0")
 
-# Initialize Gemini AI
-def configure_gemini():
-    """Configure Gemini AI with stored API key"""
+# Helper function for DeepSeek API calls
+def make_deepseek_api_call(prompt):
+    """Make DeepSeek API call"""
+    # Check if client is configured
+    if 'deepseek_client' not in globals() or deepseek_client is None:
+        return "Error: DeepSeek AI is not properly configured. Please restart the application."
+    
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        return True
+        # Simple API call with DeepSeek
+        response = deepseek_client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response.choices[0].message.content
+        
     except Exception as e:
-        st.error(f"Error configuring Gemini AI: {str(e)}")
+        error_msg = str(e)
+        return f"Error generating AI response: {error_msg}"
+
+# Initialize DeepSeek AI
+def configure_deepseek():
+    """Configure DeepSeek AI with stored API key"""
+    try:
+        # Create DeepSeek client instance
+        global deepseek_client
+        deepseek_client = DeepSeekAI(
+            api_key=DEEPSEEK_API_KEY
+        )
+        return True
+        
+    except Exception as e:
+        st.error(f"Error configuring DeepSeek AI: {str(e)}")
         return False
 
+
+
 def generate_ai_report(project_data, analysis_data, mode_eng, language='en', uploaded_file_content=None):
-    """Generate AI-powered report using Gemini"""
+    """Generate AI-powered report using DeepSeek"""
     try:
-        # Configure Gemini first
-        if not configure_gemini():
-            return "Error: Failed to configure Gemini AI"
+        # Check if client is already configured, if not configure it
+        if 'deepseek_client' not in globals() or deepseek_client is None:
+            if not configure_deepseek():
+                return "Error: Failed to configure DeepSeek AI"
         
         # Create prompt based on analysis mode and data
         if mode_eng == "Body Weight":
@@ -104,16 +138,9 @@ def generate_ai_report(project_data, analysis_data, mode_eng, language='en', upl
         else:
             prompt = create_behavior_ai_prompt(project_data, analysis_data, mode_eng, language, uploaded_file_content)
         
-        # Try different models with fallback
-        try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-2.0-flash-lite')
-        except:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+        # Use DeepSeek API
+        return make_deepseek_api_call(prompt)
         
-        response = model.generate_content(prompt)
-        
-        return response.text
     except Exception as e:
         return f"Error generating AI report: {str(e)}"
 
@@ -305,11 +332,12 @@ def process_uploaded_file(uploaded_file):
         return f"Error processing file: {str(e)}"
 
 def generate_chatbot_response(user_message, language='en'):
-    """Generate chatbot response using Gemini AI"""
+    """Generate chatbot response using DeepSeek AI"""
     try:
-        # Configure Gemini
-        if not configure_gemini():
-            return "Error: Failed to configure Gemini AI"
+        # Check if client is already configured, if not configure it
+        if 'deepseek_client' not in globals() or deepseek_client is None:
+            if not configure_deepseek():
+                return "Error: Failed to configure DeepSeek AI"
         
         # Create chatbot prompt with comprehensive functionality summary
         if language == 'zh':
@@ -391,26 +419,21 @@ Response Requirements:
 - Base guidance on the above functionality summary for accuracy
 
 Please answer in English, focusing on tool usage guidance.
-"""
+        """
         
-        # Try different models with fallback
-        try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-2.0-flash-lite')
-        except:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+        # Use DeepSeek API
+        return make_deepseek_api_call(prompt)
         
-        response = model.generate_content(prompt)
-        return response.text
     except Exception as e:
         return f"Error generating chatbot response: {str(e)}"
 
 def generate_tutor_response(user_message, language='en'):
-    """Generate tutor response using Gemini AI"""
+    """Generate tutor response using DeepSeek AI"""
     try:
-        # Configure Gemini
-        if not configure_gemini():
-            return "Error: Failed to configure Gemini AI"
+        # Check if client is already configured, if not configure it
+        if 'deepseek_client' not in globals() or deepseek_client is None:
+            if not configure_deepseek():
+                return "Error: Failed to configure DeepSeek AI"
         
         # Create tutor prompt
         if language == 'zh':
@@ -492,26 +515,21 @@ Response Requirements:
 - Base guidance on the above functionality summary for accuracy
 
 Please answer in English, focusing on tool usage guidance.
-"""
+        """
         
-        # Try different models with fallback
-        try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-2.0-flash-lite')
-        except:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+        # Use DeepSeek API
+        return make_deepseek_api_call(prompt)
         
-        response = model.generate_content(prompt)
-        return response.text
     except Exception as e:
         return f"Error generating tutor response: {str(e)}"
 
 def generate_file_summary(file_content, filename, language='en'):
     """Generate summary of uploaded file content"""
     try:
-        # Configure Gemini
-        if not configure_gemini():
-            return "Error: Failed to configure Gemini AI"
+        # Check if client is already configured, if not configure it
+        if 'deepseek_client' not in globals() or deepseek_client is None:
+            if not configure_deepseek():
+                return "Error: Failed to configure DeepSeek AI"
         
         # Create file summary prompt
         if language == 'zh':
@@ -549,26 +567,21 @@ Please provide the following summary:
 5. **Important observations or conclusions**
 
 Please answer in English with clear and concise format.
-"""
+        """
         
-        # Try different models with fallback
-        try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-2.0-flash-lite')
-        except:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+        # Use DeepSeek API
+        return make_deepseek_api_call(prompt)
         
-        response = model.generate_content(prompt)
-        return response.text
     except Exception as e:
         return f"Error generating file summary: {str(e)}"
 
 def generate_powerpoint_content(project_data, mode_eng, language='en', file_summaries=None):
     """Generate comprehensive PowerPoint content using AI"""
     try:
-        # Configure Gemini
-        if not configure_gemini():
-            return "Error: Failed to configure Gemini AI"
+        # Check if client is already configured, if not configure it
+        if 'deepseek_client' not in globals() or deepseek_client is None:
+            if not configure_deepseek():
+                return "Error: Failed to configure DeepSeek AI"
         
         # Create AI prompt for PowerPoint content
         if language == 'zh':
@@ -632,17 +645,11 @@ Format requirements:
 - Professional and understandable content
 - Suitable for academic presentation
 - Include key data points
-"""
+        """
         
-        # Try different models with fallback
-        try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-2.0-flash-lite')
-        except:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+        # Use DeepSeek API
+        return make_deepseek_api_call(prompt)
         
-        response = model.generate_content(prompt)
-        return response.text
     except Exception as e:
         return f"Error generating PowerPoint content: {str(e)}"
 
@@ -1250,7 +1257,7 @@ TRANSLATIONS = {
         'final_weight': 'Final Weight',
         'ai_report': 'AI-Powered Report',
         'generate_ai_report': 'Generate AI Report',
-        'ai_report_placeholder': 'Enter your Gemini API key to generate AI-powered reports',
+        'ai_report_placeholder': 'Enter your DeepSeek API key to generate AI-powered reports',
         'api_key': 'API Key',
         'ai_analysis': 'AI Analysis',
         'ai_insights': 'AI Insights',
@@ -1386,7 +1393,7 @@ TRANSLATIONS = {
         'final_weight': '最终体重',
         'ai_report': 'AI智能报告',
         'generate_ai_report': '生成AI报告',
-        'ai_report_placeholder': '输入您的Gemini API密钥以生成AI智能报告',
+        'ai_report_placeholder': '输入您的DeepSeek API密钥以生成AI智能报告',
         'api_key': 'API密钥',
         'ai_analysis': 'AI分析',
         'ai_insights': 'AI洞察',
@@ -1791,6 +1798,8 @@ with st.sidebar:
         st.success("📊 AI Report Active")
     elif st.session_state.ai_powerpoint_active:
         st.success("📈 PowerPoint Active")
+    
+    st.markdown("---")
 
 # App header
 st.title(t('main_title'))
