@@ -182,7 +182,8 @@ plotly>=5.15.0             # Interactive charts
 openpyxl>=3.1.0            # Excel file handling
 pyarrow>=12.0.0            # Fast data processing
 xlsxwriter>=3.1.0          # Excel writing
-deepseek-ai>=0.0.1 # AI integration
+httpx>=0.24.0            # HTTP client for AI integration
+deepseek-ai>=0.0.1       # AI integration
 python-pptx>=0.6.21        # PowerPoint generation
 Pillow>=9.5.0              # Image processing
 ```
