@@ -3382,135 +3382,231 @@ elif st.session_state.ai_chatbot_active:
             st.session_state.file_summaries = []
             st.rerun()
     
-    # Chat interface for file analysis
+    # Modern Chat Box Interface
     st.markdown("---")
-    st.subheader("💬 Chat Interface")
+    st.markdown("## 💬 AI Assistant Chat")
     
-    # Create a chat container with better styling
+    # Initialize chat history if not exists
+    if 'chat_messages' not in st.session_state:
+        st.session_state.chat_messages = []
+    
+    # Welcome message
+    if not st.session_state.chat_messages:
+        welcome_msg = "Hello! I'm your AI assistant. I can help you analyze files, answer questions about FOB testing, and provide guidance on using this dashboard. How can I help you today?"
+        if st.session_state.language == 'zh':
+            welcome_msg = "你好！我是你的AI助手。我可以帮助你分析文件、回答FOB测试相关问题，并提供使用这个仪表板的指导。今天我能为你做些什么？"
+        st.session_state.chat_messages.append({"role": "assistant", "content": welcome_msg, "timestamp": datetime.datetime.now().strftime("%H:%M")})
+    
+    # Chat container with custom styling
     chat_container = st.container()
     
     with chat_container:
-        # Display chat history in a scrollable area
-        if st.session_state.chatbot_chat_history:
-            st.markdown("**💬 Chat History:**")
-            chat_display = st.container()
+        # Create a scrollable chat area using CSS
+        st.markdown("""
+        <style>
+        .chat-container {
+            border: 2px solid #e0e0e0;
+            border-radius: 15px;
+            padding: 20px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            max-height: 500px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+        .chat-message {
+            margin: 15px 0;
+            padding: 15px;
+            border-radius: 20px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .user-message {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            margin-left: auto;
+            margin-right: 10px;
+            text-align: right;
+        }
+        .assistant-message {
+            background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+            color: white;
+            margin-right: auto;
+            margin-left: 10px;
+        }
+        .message-time {
+            font-size: 0.8em;
+            opacity: 0.7;
+            margin-top: 5px;
+        }
+        .typing-indicator {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Chat messages display area
+        chat_area = st.container()
+        
+        with chat_area:
+            # Create the chat container with CSS
+            st.markdown('<div class="chat-container">', unsafe_allow_html=True)
             
-            with chat_display:
-                for message in st.session_state.chatbot_chat_history:
-                    if message["role"] == "user":
-                        st.markdown(f"""
-                        <div style="background-color: #e3f2fd; padding: 10px; border-radius: 10px; margin: 5px 0;">
-                            <strong>👤 You:</strong> {message['content']}
-                        </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"""
-                        <div style="background-color: #f3e5f5; padding: 10px; border-radius: 10px; margin: 5px 0;">
-                            <strong>🤖 AI Assistant:</strong> {message['content']}
-                        </div>
-                        """, unsafe_allow_html=True)
+            # Display all chat messages
+            for i, message in enumerate(st.session_state.chat_messages):
+                if message["role"] == "user":
+                    st.markdown(f"""
+                    <div class="chat-message user-message">
+                        <div><strong>👤 You</strong></div>
+                        <div>{message['content']}</div>
+                        <div class="message-time">{message.get('timestamp', '')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div class="chat-message assistant-message">
+                        <div><strong>🤖 AI Assistant</strong></div>
+                        <div>{message['content']}</div>
+                        <div class="message-time">{message.get('timestamp', '')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # Show typing indicator if AI is responding
+            if 'ai_responding' in st.session_state and st.session_state.ai_responding:
+                st.markdown("""
+                <div class="chat-message assistant-message">
+                    <div><strong>🤖 AI Assistant</strong></div>
+                    <div class="typing-indicator"></div>
+                    <div>Thinking...</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            st.markdown('</div>', unsafe_allow_html=True)
     
-    # Chat input section
-    st.markdown("**Ask about your uploaded files:**")
-    
-    # Quick help buttons
-    st.markdown("**💡 Quick Questions:**")
+    # Quick action buttons
+    st.markdown("**💡 Quick Actions:**")
     col_q1, col_q2, col_q3 = st.columns(3)
+    
     with col_q1:
-        if st.button("📊 Analyze Files", use_container_width=True, key="chatbot_q1"):
+        if st.button("📊 Analyze Files", use_container_width=True, key="chat_q1"):
             if st.session_state.file_summaries:
-                # Clear previous chat history and add new conversation
-                st.session_state.chatbot_chat_history = []
-                # Add welcome message
-                chatbot_welcome_msg = "Hello! I'm your file analysis assistant. Upload multiple files and I'll help you summarize their content for your FOB test analysis."
-                if st.session_state.language == 'zh':
-                    chatbot_welcome_msg = "你好！我是你的文件分析助手。上传多个文件，我将帮助你总结其内容以用于FOB测试分析。"
-                st.session_state.chatbot_chat_history.append({"role": "assistant", "content": chatbot_welcome_msg})
-                
                 question = "Can you analyze the uploaded files and provide insights?"
-                st.session_state.chatbot_chat_history.append({"role": "user", "content": question})
+                if st.session_state.language == 'zh':
+                    question = "你能分析上传的文件并提供见解吗？"
+                st.session_state.chat_messages.append({"role": "user", "content": question, "timestamp": datetime.datetime.now().strftime("%H:%M")})
+                
+                # Generate AI response
                 with st.spinner("AI is analyzing files..."):
                     ai_response = generate_chatbot_response(question, st.session_state.language)
-                    st.session_state.chatbot_chat_history.append({"role": "assistant", "content": ai_response})
+                    st.session_state.chat_messages.append({"role": "assistant", "content": ai_response, "timestamp": datetime.datetime.now().strftime("%H:%M")})
                 st.rerun()
             else:
                 st.warning("Please upload files first")
     
     with col_q2:
-        if st.button("🔍 Find Patterns", use_container_width=True, key="chatbot_q2"):
+        if st.button("🔍 Find Patterns", use_container_width=True, key="chat_q2"):
             if st.session_state.file_summaries:
-                # Clear previous chat history and add new conversation
-                st.session_state.chatbot_chat_history = []
-                # Add welcome message
-                chatbot_welcome_msg = "Hello! I'm your file analysis assistant. Upload multiple files and I'll help you summarize their content for your FOB test analysis."
-                if st.session_state.language == 'zh':
-                    chatbot_welcome_msg = "你好！我是你的文件分析助手。上传多个文件，我将帮助你总结其内容以用于FOB测试分析。"
-                st.session_state.chatbot_chat_history.append({"role": "assistant", "content": chatbot_welcome_msg})
-                
                 question = "What patterns or trends do you see in the uploaded files?"
-                st.session_state.chatbot_chat_history.append({"role": "user", "content": question})
+                if st.session_state.language == 'zh':
+                    question = "你在上传的文件中看到了什么模式或趋势？"
+                st.session_state.chat_messages.append({"role": "user", "content": question, "timestamp": datetime.datetime.now().strftime("%H:%M")})
+                
+                # Generate AI response
                 with st.spinner("AI is finding patterns..."):
                     ai_response = generate_chatbot_response(question, st.session_state.language)
-                    st.session_state.chatbot_chat_history.append({"role": "assistant", "content": ai_response})
+                    st.session_state.chat_messages.append({"role": "assistant", "content": ai_response, "timestamp": datetime.datetime.now().strftime("%H:%M")})
                 st.rerun()
             else:
                 st.warning("Please upload files first")
     
     with col_q3:
-        if st.button("📈 Data Insights", use_container_width=True, key="chatbot_q3"):
+        if st.button("📈 Data Insights", use_container_width=True, key="chat_q3"):
             if st.session_state.file_summaries:
-                # Clear previous chat history and add new conversation
-                st.session_state.chatbot_chat_history = []
-                # Add welcome message
-                chatbot_welcome_msg = "Hello! I'm your file analysis assistant. Upload multiple files and I'll help you summarize their content for your FOB test analysis."
-                if st.session_state.language == 'zh':
-                    chatbot_welcome_msg = "你好！我是你的文件分析助手。上传多个文件，我将帮助你总结其内容以用于FOB测试分析。"
-                st.session_state.chatbot_chat_history.append({"role": "assistant", "content": chatbot_welcome_msg})
-                
                 question = "What insights can you provide from the uploaded data?"
-                st.session_state.chatbot_chat_history.append({"role": "user", "content": question})
+                if st.session_state.language == 'zh':
+                    question = "你能从上传的数据中提供什么见解？"
+                st.session_state.chat_messages.append({"role": "user", "content": question, "timestamp": datetime.datetime.now().strftime("%H:%M")})
+                
+                # Generate AI response
                 with st.spinner("AI is generating insights..."):
                     ai_response = generate_chatbot_response(question, st.session_state.language)
-                    st.session_state.chatbot_chat_history.append({"role": "assistant", "content": ai_response})
+                    st.session_state.chat_messages.append({"role": "assistant", "content": ai_response, "timestamp": datetime.datetime.now().strftime("%H:%M")})
                 st.rerun()
             else:
                 st.warning("Please upload files first")
     
-    # Custom question input
-    user_message = st.text_input(
-        "Type your question here...",
-        key="chatbot_input",
-        placeholder="e.g., What does this data tell us about the experiment?",
-        help="Ask specific questions about your uploaded files"
-    )
+    # Chat input section
+    st.markdown("**💬 Type your message:**")
     
-    col_send, col_clear = st.columns([3, 1])
+    # Input area with send button
+    col_input, col_send = st.columns([4, 1])
+    
+    with col_input:
+        user_message = st.text_input(
+            "Type your message here...",
+            key="chat_input",
+            placeholder="Ask me anything about FOB testing, data analysis, or dashboard usage...",
+            help="Type your question or message here"
+        )
+    
     with col_send:
-        if st.button("Send Question", use_container_width=True, type="primary"):
-            if user_message.strip():
-                # Clear previous chat history and add new conversation
-                st.session_state.chatbot_chat_history = []
-                # Add welcome message
-                chatbot_welcome_msg = "Hello! I'm your file analysis assistant. Upload multiple files and I'll help you summarize their content for your FOB test analysis."
-                if st.session_state.language == 'zh':
-                    chatbot_welcome_msg = "你好！我是你的文件分析助手。上传多个文件，我将帮助你总结其内容以用于FOB测试分析。"
-                st.session_state.chatbot_chat_history.append({"role": "assistant", "content": chatbot_welcome_msg})
-                
-                # Add user message to chat history
-                st.session_state.chatbot_chat_history.append({"role": "user", "content": user_message})
-                
-                # Generate AI response
-                with st.spinner("AI is thinking..."):
-                    ai_response = generate_chatbot_response(user_message, st.session_state.language)
-                    st.session_state.chatbot_chat_history.append({"role": "assistant", "content": ai_response})
-                
-                # Clear input and rerun
-                st.rerun()
+        send_button = st.button("🚀 Send", use_container_width=True, type="primary")
+    
+    # Handle send button click
+    if send_button and user_message.strip():
+        # Add user message to chat
+        st.session_state.chat_messages.append({
+            "role": "user", 
+            "content": user_message.strip(), 
+            "timestamp": datetime.datetime.now().strftime("%H:%M")
+        })
+        
+        # Generate AI response
+        with st.spinner("AI is thinking..."):
+            ai_response = generate_chatbot_response(user_message.strip(), st.session_state.language)
+            st.session_state.chat_messages.append({
+                "role": "assistant", 
+                "content": ai_response, 
+                "timestamp": datetime.datetime.now().strftime("%H:%M")
+            })
+        
+        # Clear input and rerun
+        st.rerun()
+    
+    # Control buttons
+    col_clear, col_export = st.columns(2)
     
     with col_clear:
-        if st.button("Clear Chat", use_container_width=True):
-            st.session_state.chatbot_chat_history = []
+        if st.button("🗑️ Clear Chat", use_container_width=True):
+            st.session_state.chat_messages = []
             st.rerun()
+    
+    with col_export:
+        if st.button("📥 Export Chat", use_container_width=True):
+            if st.session_state.chat_messages:
+                # Create chat export
+                chat_text = "AI Assistant Chat History\n" + "="*50 + "\n\n"
+                for message in st.session_state.chat_messages:
+                    role = "You" if message["role"] == "user" else "AI Assistant"
+                    timestamp = message.get("timestamp", "")
+                    chat_text += f"[{timestamp}] {role}: {message['content']}\n\n"
+                
+                # Create download button
+                st.download_button(
+                    label="📥 Download Chat History",
+                    data=chat_text,
+                    file_name=f"chat_history_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    mime="text/plain"
+                )
 
 elif st.session_state.ai_report_active:
     st.markdown("## 📊 AI Report Generator")
