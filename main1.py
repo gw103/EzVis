@@ -3382,13 +3382,18 @@ elif st.session_state.ai_chatbot_active:
             st.session_state.file_summaries = []
             st.rerun()
     
-    # Modern Chat Box Interface
+    # Floating Chat Box Interface with Streaming Responses
     st.markdown("---")
-    st.markdown("## 💬 AI Assistant Chat")
     
-    # Initialize chat history if not exists
+    # Initialize chat state
+    if 'floating_chat_open' not in st.session_state:
+        st.session_state.floating_chat_open = False
     if 'chat_messages' not in st.session_state:
         st.session_state.chat_messages = []
+    if 'current_streaming_response' not in st.session_state:
+        st.session_state.current_streaming_response = ""
+    if 'is_streaming' not in st.session_state:
+        st.session_state.is_streaming = False
     
     # Welcome message
     if not st.session_state.chat_messages:
@@ -3397,21 +3402,53 @@ elif st.session_state.ai_chatbot_active:
             welcome_msg = "你好！我是你的AI助手。我可以帮助你分析文件、回答FOB测试相关问题，并提供使用这个仪表板的指导。今天我能为你做些什么？"
         st.session_state.chat_messages.append({"role": "assistant", "content": welcome_msg, "timestamp": datetime.datetime.now().strftime("%H:%M")})
     
-    # Chat container with custom styling
-    chat_container = st.container()
+    # Floating Chat Toggle Button
+    col_toggle, col_status = st.columns([1, 3])
+    with col_toggle:
+        if st.button("💬 Open Chat", use_container_width=True, type="primary"):
+            st.session_state.floating_chat_open = True
+            st.rerun()
     
-    with chat_container:
-        # Create a scrollable chat area using CSS
+    with col_status:
+        if st.session_state.floating_chat_open:
+            st.success("💬 Chat is now open! Click 'Close Chat' to minimize.")
+    
+    # Floating Chat Box (appears when open)
+    if st.session_state.floating_chat_open:
+        # Create floating chat container with custom CSS
         st.markdown("""
         <style>
-        .chat-container {
-            border: 2px solid #e0e0e0;
-            border-radius: 15px;
+        .floating-chat {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            max-width: 600px;
+            height: 70vh;
+            background: white;
+            border: 2px solid #007bff;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .chat-header {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 18px 18px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .chat-body {
+            flex: 1;
             padding: 20px;
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            max-height: 500px;
             overflow-y: auto;
-            margin-bottom: 20px;
+            background: #f8f9fa;
         }
         .chat-message {
             margin: 15px 0;
@@ -3419,6 +3456,11 @@ elif st.session_state.ai_chatbot_active:
             border-radius: 20px;
             max-width: 80%;
             word-wrap: break-word;
+            animation: fadeIn 0.3s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         .user-message {
             background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
@@ -3432,6 +3474,13 @@ elif st.session_state.ai_chatbot_active:
             color: white;
             margin-right: auto;
             margin-left: 10px;
+        }
+        .streaming-message {
+            background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+            color: white;
+            margin-right: auto;
+            margin-left: 10px;
+            border: 2px dashed #fff;
         }
         .message-time {
             font-size: 0.8em;
@@ -3451,17 +3500,30 @@ elif st.session_state.ai_chatbot_active:
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        .chat-input-area {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+        }
+        .streaming-text {
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+        }
         </style>
         """, unsafe_allow_html=True)
         
-        # Chat messages display area
-        chat_area = st.container()
-        
-        with chat_area:
-            # Create the chat container with CSS
-            st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+        # Floating Chat Container
+        with st.container():
+            st.markdown("""
+            <div class="floating-chat">
+                <div class="chat-header">
+                    <div><strong>🤖 AI Assistant Chat</strong></div>
+                    <div style="cursor: pointer;" onclick="document.querySelector('.floating-chat').style.display='none'">❌</div>
+                </div>
+                <div class="chat-body">
+            """, unsafe_allow_html=True)
             
-            # Display all chat messages
+            # Display chat messages
             for i, message in enumerate(st.session_state.chat_messages):
                 if message["role"] == "user":
                     st.markdown(f"""
@@ -3480,133 +3542,149 @@ elif st.session_state.ai_chatbot_active:
                     </div>
                     """, unsafe_allow_html=True)
             
-            # Show typing indicator if AI is responding
-            if 'ai_responding' in st.session_state and st.session_state.ai_responding:
-                st.markdown("""
-                <div class="chat-message assistant-message">
+            # Show streaming response if active
+            if st.session_state.is_streaming and st.session_state.current_streaming_response:
+                st.markdown(f"""
+                <div class="chat-message streaming-message">
                     <div><strong>🤖 AI Assistant</strong></div>
+                    <div class="streaming-text">{st.session_state.current_streaming_response}</div>
                     <div class="typing-indicator"></div>
-                    <div>Thinking...</div>
+                    <div>Typing...</div>
                 </div>
                 """, unsafe_allow_html=True)
             
-            st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Quick action buttons
-    st.markdown("**💡 Quick Actions:**")
-    col_q1, col_q2, col_q3 = st.columns(3)
-    
-    with col_q1:
-        if st.button("📊 Analyze Files", use_container_width=True, key="chat_q1"):
-            if st.session_state.file_summaries:
-                question = "Can you analyze the uploaded files and provide insights?"
-                if st.session_state.language == 'zh':
-                    question = "你能分析上传的文件并提供见解吗？"
-                st.session_state.chat_messages.append({"role": "user", "content": question, "timestamp": datetime.datetime.now().strftime("%H:%M")})
-                
-                # Generate AI response
-                with st.spinner("AI is analyzing files..."):
-                    ai_response = generate_chatbot_response(question, st.session_state.language)
-                    st.session_state.chat_messages.append({"role": "assistant", "content": ai_response, "timestamp": datetime.datetime.now().strftime("%H:%M")})
-                st.rerun()
-            else:
-                st.warning("Please upload files first")
-    
-    with col_q2:
-        if st.button("🔍 Find Patterns", use_container_width=True, key="chat_q2"):
-            if st.session_state.file_summaries:
-                question = "What patterns or trends do you see in the uploaded files?"
-                if st.session_state.language == 'zh':
-                    question = "你在上传的文件中看到了什么模式或趋势？"
-                st.session_state.chat_messages.append({"role": "user", "content": question, "timestamp": datetime.datetime.now().strftime("%H:%M")})
-                
-                # Generate AI response
-                with st.spinner("AI is finding patterns..."):
-                    ai_response = generate_chatbot_response(question, st.session_state.language)
-                    st.session_state.chat_messages.append({"role": "assistant", "content": ai_response, "timestamp": datetime.datetime.now().strftime("%H:%M")})
-                st.rerun()
-            else:
-                st.warning("Please upload files first")
-    
-    with col_q3:
-        if st.button("📈 Data Insights", use_container_width=True, key="chat_q3"):
-            if st.session_state.file_summaries:
-                question = "What insights can you provide from the uploaded data?"
-                if st.session_state.language == 'zh':
-                    question = "你能从上传的数据中提供什么见解？"
-                st.session_state.chat_messages.append({"role": "user", "content": question, "timestamp": datetime.datetime.now().strftime("%H:%M")})
-                
-                # Generate AI response
-                with st.spinner("AI is generating insights..."):
-                    ai_response = generate_chatbot_response(question, st.session_state.language)
-                    st.session_state.chat_messages.append({"role": "assistant", "content": ai_response, "timestamp": datetime.datetime.now().strftime("%H:%M")})
-                st.rerun()
-            else:
-                st.warning("Please upload files first")
-    
-    # Chat input section
-    st.markdown("**💬 Type your message:**")
-    
-    # Input area with send button
-    col_input, col_send = st.columns([4, 1])
-    
-    with col_input:
-        user_message = st.text_input(
-            "Type your message here...",
-            key="chat_input",
-            placeholder="Ask me anything about FOB testing, data analysis, or dashboard usage...",
-            help="Type your question or message here"
-        )
-    
-    with col_send:
-        send_button = st.button("🚀 Send", use_container_width=True, type="primary")
-    
-    # Handle send button click
-    if send_button and user_message.strip():
-        # Add user message to chat
-        st.session_state.chat_messages.append({
-            "role": "user", 
-            "content": user_message.strip(), 
-            "timestamp": datetime.datetime.now().strftime("%H:%M")
-        })
-        
-        # Generate AI response
-        with st.spinner("AI is thinking..."):
-            ai_response = generate_chatbot_response(user_message.strip(), st.session_state.language)
-            st.session_state.chat_messages.append({
-                "role": "assistant", 
-                "content": ai_response, 
-                "timestamp": datetime.datetime.now().strftime("%H:%M")
-            })
-        
-        # Clear input and rerun
-        st.rerun()
-    
-    # Control buttons
-    col_clear, col_export = st.columns(2)
-    
-    with col_clear:
-        if st.button("🗑️ Clear Chat", use_container_width=True):
-            st.session_state.chat_messages = []
-            st.rerun()
-    
-    with col_export:
-        if st.button("📥 Export Chat", use_container_width=True):
-            if st.session_state.chat_messages:
-                # Create chat export
-                chat_text = "AI Assistant Chat History\n" + "="*50 + "\n\n"
-                for message in st.session_state.chat_messages:
-                    role = "You" if message["role"] == "user" else "AI Assistant"
-                    timestamp = message.get("timestamp", "")
-                    chat_text += f"[{timestamp}] {role}: {message['content']}\n\n"
-                
-                # Create download button
-                st.download_button(
-                    label="📥 Download Chat History",
-                    data=chat_text,
-                    file_name=f"chat_history_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                    mime="text/plain"
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+            # Chat Input Area
+            st.markdown('<div class="chat-input-area">', unsafe_allow_html=True)
+            
+            # Quick action buttons
+            st.markdown("**💡 Quick Actions:**")
+            col_q1, col_q2, col_q3 = st.columns(3)
+            
+            with col_q1:
+                if st.button("📊 Analyze Files", use_container_width=True, key="floating_q1"):
+                    if st.session_state.file_summaries:
+                        question = "Can you analyze the uploaded files and provide insights?"
+                        if st.session_state.language == 'zh':
+                            question = "你能分析上传的文件并提供见解吗？"
+                        st.session_state.chat_messages.append({"role": "user", "content": question, "timestamp": datetime.datetime.now().strftime("%H:%M")})
+                        
+                        # Start streaming response
+                        st.session_state.is_streaming = True
+                        st.session_state.current_streaming_response = ""
+                        st.rerun()
+                    else:
+                        st.warning("Please upload files first")
+            
+            with col_q2:
+                if st.button("🔍 Find Patterns", use_container_width=True, key="floating_q2"):
+                    if st.session_state.file_summaries:
+                        question = "What patterns or trends do you see in the uploaded files?"
+                        if st.session_state.language == 'zh':
+                            question = "你在上传的文件中看到了什么模式或趋势？"
+                        st.session_state.chat_messages.append({"role": "user", "content": question, "timestamp": datetime.datetime.now().strftime("%H:%M")})
+                        
+                        # Start streaming response
+                        st.session_state.is_streaming = True
+                        st.session_state.current_streaming_response = ""
+                        st.rerun()
+                    else:
+                        st.warning("Please upload files first")
+            
+            with col_q3:
+                if st.button("📈 Data Insights", use_container_width=True, key="floating_q3"):
+                    if st.session_state.file_summaries:
+                        question = "What insights can you provide from the uploaded data?"
+                        if st.session_state.language == 'zh':
+                            question = "你能从上传的数据中提供什么见解？"
+                        st.session_state.chat_messages.append({"role": "user", "content": question, "timestamp": datetime.datetime.now().strftime("%H:%M")})
+                        
+                        # Start streaming response
+                        st.session_state.is_streaming = True
+                        st.session_state.current_streaming_response = ""
+                        st.rerun()
+                    else:
+                        st.warning("Please upload files first")
+            
+            # Chat input
+            st.markdown("**💬 Type your message:**")
+            col_input, col_send = st.columns([4, 1])
+            
+            with col_input:
+                user_message = st.text_input(
+                    "Type your message here...",
+                    key="floating_chat_input",
+                    placeholder="Ask me anything about FOB testing, data analysis, or dashboard usage...",
+                    help="Type your question or message here"
                 )
+            
+            with col_send:
+                send_button = st.button("🚀 Send", use_container_width=True, type="primary")
+            
+            # Handle send button click
+            if send_button and user_message.strip():
+                # Add user message to chat
+                st.session_state.chat_messages.append({
+                    "role": "user", 
+                    "content": user_message.strip(), 
+                    "timestamp": datetime.datetime.now().strftime("%H:%M")
+                })
+                
+                # Start streaming response
+                st.session_state.is_streaming = True
+                st.session_state.current_streaming_response = ""
+                st.rerun()
+            
+            # Control buttons
+            col_clear, col_close = st.columns(2)
+            
+            with col_clear:
+                if st.button("🗑️ Clear Chat", use_container_width=True):
+                    st.session_state.chat_messages = []
+                    st.rerun()
+            
+            with col_close:
+                if st.button("❌ Close Chat", use_container_width=True):
+                    st.session_state.floating_chat_open = False
+                    st.rerun()
+            
+            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Handle streaming responses
+    if st.session_state.is_streaming:
+        # Simulate streaming response (you can replace this with actual streaming API)
+        if not st.session_state.current_streaming_response:
+            # Get the last user message
+            last_user_msg = None
+            for msg in reversed(st.session_state.chat_messages):
+                if msg["role"] == "user":
+                    last_user_msg = msg["content"]
+                    break
+            
+            if last_user_msg:
+                # Generate AI response
+                ai_response = generate_chatbot_response(last_user_msg, st.session_state.language)
+                
+                # Simulate streaming by adding characters gradually
+                import time
+                for i in range(len(ai_response)):
+                    st.session_state.current_streaming_response = ai_response[:i+1]
+                    time.sleep(0.05)  # Small delay for streaming effect
+                    st.rerun()
+                
+                # Add complete response to chat history
+                st.session_state.chat_messages.append({
+                    "role": "assistant", 
+                    "content": ai_response, 
+                    "timestamp": datetime.datetime.now().strftime("%H:%M")
+                })
+                
+                # Stop streaming
+                st.session_state.is_streaming = False
+                st.session_state.current_streaming_response = ""
+                st.rerun()
 
 elif st.session_state.ai_report_active:
     st.markdown("## 📊 AI Report Generator")
