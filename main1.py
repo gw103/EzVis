@@ -10,7 +10,6 @@ import re
 import uuid
 import random
 import datetime
-import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib import font_manager
 import platform
@@ -59,16 +58,8 @@ if 'active_project' not in st.session_state:
     st.session_state.active_project = None
 if 'experiments' not in st.session_state:
     st.session_state.experiments = {}
-if 'selected_experiments' not in st.session_state:
-    st.session_state.selected_experiments = []
 if 'mode' not in st.session_state:
     st.session_state.mode = "General Behavior"
-if 'selected_time' not in st.session_state:
-    st.session_state.selected_time = 0
-if 'global_min' not in st.session_state:
-    st.session_state.global_min = 0
-if 'global_max' not in st.session_state:
-    st.session_state.global_max = 10
 if 'worksheet_data' not in st.session_state:
     st.session_state.worksheet_data = {}
 if 'save_status' not in st.session_state:
@@ -77,13 +68,13 @@ if 'show_project_creation' not in st.session_state:
     st.session_state.show_project_creation = False
 if 'comparison_groups' not in st.session_state:
     st.session_state.comparison_groups = {}
+if 'show_scoring_help' not in st.session_state:
+    st.session_state.show_scoring_help = False
 
 # DeepSeek AI Configuration
 # Get your API key from: https://platform.deepseek.com/
 # Replace the placeholder with your actual API key
 # You can also set it as an environment variable: DEEPSEEK_API_KEY
-import os
-import time
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-16231cff5f244f0a898972cd1e4d0bf0")
 
 # Helper function for DeepSeek API calls
@@ -144,56 +135,7 @@ def generate_ai_report(project_data, analysis_data, mode_eng, language='en', upl
     except Exception as e:
         return f"Error generating AI report: {str(e)}"
 
-def create_weight_ai_prompt(project_data, weight_data, language):
-    """Create AI prompt for weight analysis"""
-    if language == 'zh':
-        return f"""
-作为一位专业的动物实验数据分析师，请分析以下FOB测试体重数据并生成详细报告：
 
-项目信息：
-- 项目名称：{project_data.get('name', 'N/A')}
-- 动物类型：{project_data.get('animal_type', 'N/A')}
-- 每组动物数量：{project_data.get('num_animals', 'N/A')}
-- 分析模式：体重变化
-
-体重数据：
-{weight_data.to_string() if hasattr(weight_data, 'to_string') else str(weight_data)}
-
-请提供以下分析：
-1. 总体体重变化趋势分析
-2. 各组之间的体重变化比较
-3. 对照组与其他组的差异分析
-4. 体重变化的生物学意义
-5. 实验设计建议
-6. 统计显著性分析（如适用）
-7. 结论和建议
-
-请用中文回答，格式要专业、清晰。
-"""
-    else:
-        return f"""
-As a professional animal experiment data analyst, please analyze the following FOB test body weight data and generate a detailed report:
-
-Project Information:
-- Project Name: {project_data.get('name', 'N/A')}
-- Animal Type: {project_data.get('animal_type', 'N/A')}
-- Animals per Group: {project_data.get('num_animals', 'N/A')}
-- Analysis Mode: Body Weight Changes
-
-Weight Data:
-{weight_data.to_string() if hasattr(weight_data, 'to_string') else str(weight_data)}
-
-Please provide the following analysis:
-1. Overall body weight change trends
-2. Comparison of weight changes between groups
-3. Analysis of differences between control and treatment groups
-4. Biological significance of weight changes
-5. Experimental design recommendations
-6. Statistical significance analysis (if applicable)
-7. Conclusions and recommendations
-
-Please provide a professional, clear format in English.
-"""
 
 def create_behavior_ai_prompt(project_data, analysis_data, mode_eng, language, uploaded_file_content=None):
     """Create AI prompt for behavior analysis"""
@@ -1630,6 +1572,11 @@ set_custom_style()
 # Sidebar
 with st.sidebar:
     st.title("🔬 FOB Test")
+    
+    # Help Icon for Scoring System
+    if st.button("❓ Definition of Scores", use_container_width=True, help="Click to see how scoring is determined for each mode", key="sidebar_scoring_help"):
+        st.session_state.show_scoring_help = not st.session_state.show_scoring_help
+        st.rerun()
     
     # Language selection
     st.subheader("Language")
@@ -3843,8 +3790,6 @@ elif st.session_state.ai_powerpoint_active:
         st.info("📊 Generating comprehensive charts for all 6 FOB test modes...")
         
         # Create sample data for charts
-        import numpy as np
-        import matplotlib.pyplot as plt
         
         for mode in all_modes:
             mode_charts = []
@@ -4223,6 +4168,73 @@ if 'show_project_creation' in st.session_state and st.session_state.show_project
             st.rerun()
 
 # Main Content Area
+
+# Show scoring help if requested (works even without a project)
+if st.session_state.show_scoring_help:
+    with st.expander("📊 Definition of Scores", expanded=True):
+        st.markdown("### How Scoring is Determined for Each Mode:")
+        
+        # General Behavior
+        st.markdown("**🐭 General Behavior (0/4/8 System):**")
+        st.markdown("""
+        - **0**: Normal behavior, no abnormalities
+        - **4**: Mild abnormalities, slight deviations from normal
+        - **8**: Severe abnormalities, significant deviations
+        - **+/-**: Modifiers (e.g., 4+ = mild to moderate, 4- = very mild)
+        - **Normal Range**: 2-6 (scores outside this range indicate abnormalities)
+        """)
+        
+        # Autonomic Functions
+        st.markdown("**🫁 Autonomic and Sensorimotor Functions (Binary):**")
+        st.markdown("""
+        - **Normal**: Standard autonomic responses, normal skin color, regular breathing
+        - **Abnormal**: Piloerection, cyanosis, irregular breathing, stertorous breathing
+        - **Scoring**: Each observation is marked as Normal or Abnormal
+        """)
+        
+        # Reflex Capabilities
+        st.markdown("**🦴 Reflex Capabilities (Binary):**")
+        st.markdown("""
+        - **Normal**: Proper reflex responses, normal gait, appropriate pain response
+        - **Abnormal**: Reduced reflexes, abnormal gait, catalepsy, poor pain response
+        - **Scoring**: Each reflex test is marked as Normal or Abnormal
+        """)
+        
+        # Body Temperature
+        st.markdown("**🌡️ Body Temperature (Continuous):**")
+        st.markdown("""
+        - **Normal Range**: 36-38°C (96.8-100.4°F)
+        - **Mice**: Typically 37.0°C ± 0.5°C
+        - **Rats**: Typically 37.5°C ± 0.5°C
+        - **Scoring**: Record actual temperature values in degrees Celsius
+        """)
+        
+        # Body Weight
+        st.markdown("**⚖️ Body Weight (Continuous):**")
+        st.markdown("""
+        - **Measurement**: Before and after experiment weights in grams
+        - **Calculation**: Automatic weight change calculation
+        - **Normal**: Slight weight loss due to stress/food restriction
+        - **Scoring**: Record actual weight values, changes calculated automatically
+        """)
+        
+        # Convulsive Behaviors
+        st.markdown("**⚡ Convulsive Behaviors and Excitability (Binary):**")
+        st.markdown("""
+        - **Normal**: No convulsive activity, normal excitability
+        - **Abnormal**: Tremors, convulsions, stereotypy, excessive excitability
+        - **Scoring**: Each behavior is marked as Normal or Abnormal
+        """)
+        
+        st.markdown("---")
+        st.markdown("**💡 Tips:**")
+        st.markdown("""
+        - **Consistency**: Use the same scoring criteria across all observations
+        - **Documentation**: Record specific observations that led to each score
+        - **Training**: Ensure all observers are trained on scoring criteria
+        - **Validation**: Cross-check scores between observers for reliability
+        """)
+
 if st.session_state.active_project is None:
     st.info(t('start_instruction'))
 else:
@@ -4233,8 +4245,15 @@ else:
     
     st.header(f"{project['name']} - {animal_display} ({project['num_animals']} {t('animals_per_group')})")
     
-    # Mode Selection
-    st.subheader(t('select_mode'))
+    # Mode Selection with Help Icon
+    col_mode, col_help = st.columns([4, 1])
+    with col_mode:
+        st.subheader(t('select_mode'))
+    with col_help:
+        if st.button("❓", help="Definition of Scores", key="scoring_help"):
+            st.session_state.show_scoring_help = not st.session_state.show_scoring_help
+            st.rerun()
+    
     mode = st.radio(t('choose_mode'), 
                     [t('general_behavior'), t('autonomic_functions'), 
                      t('reflex_capabilities'), t('body_temperature'),
