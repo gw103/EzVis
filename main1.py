@@ -1213,7 +1213,33 @@ TRANSLATIONS = {
         'chat_placeholder': 'Ask me anything about using this dashboard...',
         'send_message': 'Send',
         'clear_chat': 'Clear Chat',
-        'chat_help': 'Ask questions about FOB testing, data analysis, or dashboard features'
+        'chat_help': 'Ask questions about FOB testing, data analysis, or dashboard features',
+        'temperature_help': 'Temperature for {animal} {num} in Celsius (e.g., 37.2)',
+        'weight_help': 'Weight for {animal} {num} in grams',
+        'binary_help': 'Click to toggle between Normal and Abnormal for {animal} {num}',
+        'score_help': 'Score for {animal} {num}. Use 0/4/8 system',
+        'before': 'Before',
+        'after': 'After',
+        'min': 'min',
+        'fob_test': 'FOB Test',
+        'description_of_scores': 'Description of Scores',
+        'project_management': 'Project Management',
+        'create_new_project': 'Create New Project',
+        'no_projects_yet': 'No projects created yet. Click \'Create New Project\' to get started.',
+        'ai_tutor': 'AI Tutor',
+        'ai_chatbot': 'AI Chatbot',
+        'ai_report': 'AI Report',
+        'powerpoint': 'PowerPoint',
+        'upload_data': 'Upload Data',
+        'upload_csv_excel': 'Upload CSV/Excel File',
+        'upload_help': 'Upload a filled-in CSV or Excel file that matches the worksheet template',
+        'download_template': 'Download Template',
+        'file_uploaded_success': 'File uploaded and data imported successfully!',
+        'invalid_file_format': 'Invalid file format. Please upload a CSV or Excel file.',
+        'template_mismatch': 'File format does not match the expected template. Please check the column structure.',
+        'import_data': 'Import Data',
+        'replace_data': 'Replace Current Data',
+        'merge_data': 'Merge with Current Data'
     },
     'zh': {
         'page_title': 'FOB测试',
@@ -1349,7 +1375,33 @@ TRANSLATIONS = {
         'chat_placeholder': '询问我关于使用此仪表板的任何问题...',
         'send_message': '发送',
         'clear_chat': '清除聊天',
-        'chat_help': '询问有关FOB测试、数据分析或仪表板功能的问题'
+        'chat_help': '询问有关FOB测试、数据分析或仪表板功能的问题',
+        'temperature_help': '{animal} {num}的体温，以摄氏度为单位（例如：37.2）',
+        'weight_help': '{animal} {num}的体重，以克为单位',
+        'binary_help': '点击切换{animal} {num}的正常/异常状态',
+        'score_help': '{animal} {num}的分数。使用0/4/8评分系统',
+        'before': '实验前',
+        'after': '实验后',
+        'min': '分钟',
+        'fob_test': 'FOB测试',
+        'description_of_scores': '评分说明',
+        'project_management': '项目管理',
+        'create_new_project': '创建新项目',
+        'no_projects_yet': '尚未创建项目。点击"创建新项目"开始使用。',
+        'ai_tutor': 'AI导师',
+        'ai_chatbot': 'AI聊天机器人',
+        'ai_report': 'AI报告',
+        'powerpoint': 'PowerPoint',
+        'upload_data': '上传数据',
+        'upload_csv_excel': '上传CSV/Excel文件',
+        'upload_help': '上传已填写的CSV或Excel文件，该文件应与工作表模板匹配',
+        'download_template': '下载模板',
+        'file_uploaded_success': '文件上传成功，数据已导入！',
+        'invalid_file_format': '无效的文件格式。请上传CSV或Excel文件。',
+        'template_mismatch': '文件格式与预期模板不匹配。请检查列结构。',
+        'import_data': '导入数据',
+        'replace_data': '替换当前数据',
+        'merge_data': '与当前数据合并'
     }
 }
 
@@ -1451,7 +1503,7 @@ OBSERVATION_TRANSLATIONS = {
 
 # Initialize language
 if 'language' not in st.session_state:
-    st.session_state.language = 'en'
+    st.session_state.language = 'zh'
 
 # Get translation function
 def t(key):
@@ -1571,10 +1623,10 @@ set_custom_style()
 
 # Sidebar
 with st.sidebar:
-    st.title("🔬 FOB Test")
+    st.title(f"🔬 {t('fob_test')}")
     
     # Help Icon for Scoring System
-    if st.button("❓ Definition of Scores", use_container_width=True, help="Click to see how scoring is determined for each mode", key="sidebar_scoring_help"):
+    if st.button(f"❓ {t('description_of_scores')}", use_container_width=True, help="Click to see how scoring is determined for each mode", key="sidebar_scoring_help"):
         st.session_state.show_scoring_help = not st.session_state.show_scoring_help
         st.rerun()
     
@@ -1590,10 +1642,10 @@ with st.sidebar:
     st.markdown("---")
     
     # Project Management Section
-    st.subheader("📁 Project Management")
+    st.subheader(f"📁 {t('project_management')}")
     
     # Create New Project Button
-    if st.button("➕ Create New Project", use_container_width=True, type="primary"):
+    if st.button(f"➕ {t('create_new_project')}", use_container_width=True, type="primary"):
         st.session_state.show_project_creation = True
         st.rerun()
     
@@ -1656,7 +1708,7 @@ with st.sidebar:
                         st.success(f"Project '{project_name}' deleted successfully!")
                         st.rerun()
     else:
-        st.info("No projects created yet. Click 'Create New Project' to get started.")
+        st.info(t('no_projects_yet'))
     
     st.markdown("---")
     
@@ -1692,7 +1744,7 @@ with st.sidebar:
         st.session_state.chatbot_chat_history.append({"role": "assistant", "content": chatbot_welcome_msg})
     
     # AI Tutor Button
-    if st.button("🎓 AI Tutor", use_container_width=True):
+    if st.button(f"🎓 {t('ai_tutor')}", use_container_width=True):
         st.session_state.ai_tutor_active = not st.session_state.ai_tutor_active
         st.session_state.ai_chatbot_active = False
         st.session_state.ai_report_active = False
@@ -1707,7 +1759,7 @@ with st.sidebar:
         st.rerun()
     
     # AI Chatbot Button
-    if st.button("💬 AI Chatbot", use_container_width=True):
+    if st.button(f"💬 {t('ai_chatbot')}", use_container_width=True):
         st.session_state.ai_chatbot_active = not st.session_state.ai_chatbot_active
         st.session_state.ai_tutor_active = False
         st.session_state.ai_report_active = False
@@ -1722,14 +1774,14 @@ with st.sidebar:
         st.rerun()
     
     # AI Report Button
-    if st.button("📊 AI Report", use_container_width=True):
+    if st.button(f"📊 {t('ai_report')}", use_container_width=True):
         st.session_state.ai_report_active = not st.session_state.ai_report_active
         st.session_state.ai_tutor_active = False
         st.session_state.ai_chatbot_active = False
         st.rerun()
     
     # PowerPoint Button
-    if st.button("📈 PowerPoint", use_container_width=True):
+    if st.button(f"📈 {t('powerpoint')}", use_container_width=True):
         st.session_state.ai_powerpoint_active = not st.session_state.ai_powerpoint_active
         st.session_state.ai_tutor_active = False
         st.session_state.ai_chatbot_active = False
@@ -1881,7 +1933,7 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
         
         for time in times:
             data['time'].append(time)
-            data['observation'].append('body temperature')
+            data['observation'].append(t_obs('body temperature'))
             for i in range(1, num_animals + 1):
                 # Generate realistic body temperature
                 base_temp = np.random.normal(base_temp_mean, 0.5)
@@ -1909,11 +1961,11 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
             data[f'{animal_type}_{i}'] = []
         
         # Only two time points for weight: before (0) and after (e.g., end of experiment)
-        for time_label in ['before', 'after']:
+        for time_label in [t('before'), t('after')]:
             data['time'].append(time_label)
-            data['observation'].append('body weight')
+            data['observation'].append(t_obs('body weight'))
             for i in range(1, num_animals + 1):
-                if time_label == 'before':
+                if time_label == t('before'):
                     # Initial weight
                     weight = np.random.normal(base_weight_mean, base_weight_mean * 0.1)
                 else:
@@ -1949,13 +2001,13 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
         for time in times:
             for obs in observations:
                 data['time'].append(time)
-                data['observation'].append(obs)
+                data['observation'].append(t_obs(obs))
                 for i in range(1, num_animals + 1):
                     # 80% normal, 20% abnormal
                     if np.random.random() < 0.8:
-                        data[f'{animal_type}_{i}'].append('Normal')
+                        data[f'{animal_type}_{i}'].append(t('normal'))
                     else:
-                        data[f'{animal_type}_{i}'].append('Abnormal')
+                        data[f'{animal_type}_{i}'].append(t('abnormal'))
         
         return pd.DataFrame(data)
     
@@ -1971,7 +2023,7 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
         for time in times:
             for behavior in behaviors:
                 data['time'].append(time)
-                data['observation'].append(behavior)
+                data['observation'].append(t_obs(behavior))
                 for i in range(1, num_animals + 1):
                     # 0/4/8 system - generate scores mostly in normal range
                     if np.random.random() < 0.7:  # 70% normal range
@@ -2078,6 +2130,99 @@ def fill_all_worksheets_with_random_data():
     
     return filled_count
 
+# Function to validate uploaded file format
+def validate_uploaded_file(df, mode, animal_type, num_animals):
+    """Validate that uploaded file matches the expected template"""
+    if df is None or df.empty:
+        return False, "Empty file"
+    
+    # Check required columns
+    required_columns = ['time', 'observation']
+    for col in required_columns:
+        if col not in df.columns:
+            return False, f"Missing required column: {col}"
+    
+    # Check animal columns
+    expected_animal_columns = [f'{animal_type}_{i}' for i in range(1, num_animals + 1)]
+    missing_columns = [col for col in expected_animal_columns if col not in df.columns]
+    if missing_columns:
+        return False, f"Missing animal columns: {missing_columns}"
+    
+    return True, "Valid format"
+
+# Function to process uploaded file
+def process_uploaded_file(uploaded_file, mode, animal_type, num_animals):
+    """Process uploaded CSV/Excel file and return DataFrame"""
+    try:
+        # Read file based on extension
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        elif uploaded_file.name.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(uploaded_file)
+        else:
+            return None, t('invalid_file_format')
+        
+        # Validate format
+        is_valid, message = validate_uploaded_file(df, mode, animal_type, num_animals)
+        if not is_valid:
+            return None, f"{t('template_mismatch')}: {message}"
+        
+        # Migrate to Chinese if needed
+        if st.session_state.language == 'zh':
+            df = migrate_data_to_chinese(df, mode)
+        
+        return df, "Success"
+        
+    except Exception as e:
+        return None, f"Error processing file: {str(e)}"
+
+# Function to migrate existing English data to Chinese
+def migrate_data_to_chinese(df, mode):
+    """Convert existing English data to Chinese translations"""
+    if df is None or df.empty:
+        return df
+    
+    df_copy = df.copy()
+    
+    # Create reverse translation mapping
+    reverse_obs_translations = {}
+    if 'en' in OBSERVATION_TRANSLATIONS and 'zh' in OBSERVATION_TRANSLATIONS:
+        en_obs = OBSERVATION_TRANSLATIONS['en']
+        zh_obs = OBSERVATION_TRANSLATIONS['zh']
+        for obs_key in en_obs:
+            if obs_key in zh_obs:
+                reverse_obs_translations[en_obs[obs_key]] = zh_obs[obs_key]
+    
+    # Migrate observation names
+    if 'observation' in df_copy.columns:
+        df_copy['observation'] = df_copy['observation'].apply(
+            lambda x: reverse_obs_translations.get(x, x)
+        )
+    
+    # Migrate time values for Body Weight mode
+    if mode == "Body Weight" and 'time' in df_copy.columns:
+        time_mapping = {
+            'before': t('before'),
+            'after': t('after')
+        }
+        df_copy['time'] = df_copy['time'].apply(
+            lambda x: time_mapping.get(x, x)
+        )
+    
+    # Migrate binary values (Normal/Abnormal)
+    if mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
+        binary_mapping = {
+            'Normal': t('normal'),
+            'Abnormal': t('abnormal')
+        }
+        for col in df_copy.columns:
+            if col not in ['time', 'observation']:
+                df_copy[col] = df_copy[col].apply(
+                    lambda x: binary_mapping.get(x, x)
+                )
+    
+    return df_copy
+
 # Function to process data with onset/offset tracking
 def process_data_with_episodes(df, mode, animal_type="mouse", num_animals=8):
     """Process data and track onset/offset of abnormal episodes"""
@@ -2089,13 +2234,13 @@ def process_data_with_episodes(df, mode, animal_type="mouse", num_animals=8):
     
     # Get appropriate observations based on mode
     if mode == "Autonomic and Sensorimotor Functions":
-        observations = AUTONOMIC_OBSERVATIONS
+        observations = [t_obs(obs) for obs in AUTONOMIC_OBSERVATIONS]
     elif mode == "Reflex Capabilities":
-        observations = REFLEX_OBSERVATIONS
+        observations = [t_obs(obs) for obs in REFLEX_OBSERVATIONS]
     elif mode == "Convulsive Behaviors and Excitability":
-        observations = CONVULSIVE_OBSERVATIONS
+        observations = [t_obs(obs) for obs in CONVULSIVE_OBSERVATIONS]
     elif mode == "Body Temperature":
-        observations = ['body temperature']
+        observations = [t_obs('body temperature')]
     else:  # General Behavior
         observations = df['observation'].unique()
     
@@ -2117,7 +2262,7 @@ def process_data_with_episodes(df, mode, animal_type="mouse", num_animals=8):
             
             if mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
                 # For binary modes, count percentage of abnormal
-                abnormal_count = sum(1 for score in animal_scores if str(score).lower() == 'abnormal')
+                abnormal_count = sum(1 for score in animal_scores if str(score).lower() == t('abnormal').lower())
                 mean_score = (abnormal_count / len(animal_scores)) * 100 if animal_scores else 0
                 is_abnormal = abnormal_count > 0  # Any animal abnormal
             else:
@@ -2294,21 +2439,21 @@ def create_worksheet(mode, experiment_name, project_info):
     # Initialize worksheet data if not exists
     if worksheet_key not in st.session_state:
         if mode == "Autonomic and Sensorimotor Functions":
-            observations = AUTONOMIC_OBSERVATIONS
+            observations = [t_obs(obs) for obs in AUTONOMIC_OBSERVATIONS]
         elif mode == "Reflex Capabilities":
-            observations = REFLEX_OBSERVATIONS
+            observations = [t_obs(obs) for obs in REFLEX_OBSERVATIONS]
         elif mode == "Convulsive Behaviors and Excitability":
-            observations = CONVULSIVE_OBSERVATIONS
+            observations = [t_obs(obs) for obs in CONVULSIVE_OBSERVATIONS]
         elif mode == "Body Temperature":
-            observations = ['body temperature']
+            observations = [t_obs('body temperature')]
         elif mode == "Body Weight":
-            observations = ['body weight']
+            observations = [t_obs('body weight')]
         else:
-            observations = GENERAL_BEHAVIOR_OBSERVATIONS
+            observations = [t_obs(obs) for obs in GENERAL_BEHAVIOR_OBSERVATIONS]
         
         # Create initial data structure
         if mode == "Body Weight":
-            times = ['before', 'after']
+            times = [t('before'), t('after')]
         else:
             times = [0, 15, 30, 45, 60]
         
@@ -2318,8 +2463,15 @@ def create_worksheet(mode, experiment_name, project_info):
                 row = {'time': time, 'observation': obs}
                 for i in range(1, num_animals + 1):
                     if mode == "Body Temperature":
-                        row[f'{animal_type}_{i}'] = '37.0'
+                        # Default temperature values
+                        if animal_type == 'mouse':
+                            row[f'{animal_type}_{i}'] = '37.0'
+                        elif animal_type == 'rat':
+                            row[f'{animal_type}_{i}'] = '37.5'
+                        else:
+                            row[f'{animal_type}_{i}'] = '37.2'
                     elif mode == "Body Weight":
+                        # Default weight values
                         if animal_type == 'mouse':
                             row[f'{animal_type}_{i}'] = '25.0'
                         elif animal_type == 'rat':
@@ -2327,23 +2479,31 @@ def create_worksheet(mode, experiment_name, project_info):
                         else:
                             row[f'{animal_type}_{i}'] = '100.0'
                     elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
-                        row[f'{animal_type}_{i}'] = 'Normal'
+                        # Default to Normal state
+                        row[f'{animal_type}_{i}'] = t('normal')
                     else:
-                        row[f'{animal_type}_{i}'] = '0'
+                        # General Behavior: Default score
+                        row[f'{animal_type}_{i}'] = '4'
                 data.append(row)
         
         st.session_state[worksheet_key] = pd.DataFrame(data)
     
-    # Get the dataframe from session state
+    # Get the dataframe from session state and migrate to Chinese if needed
     df = st.session_state[worksheet_key].copy()
+    
+    # Migrate existing English data to Chinese if language is Chinese
+    if st.session_state.language == 'zh':
+        df = migrate_data_to_chinese(df, mode)
+        # Update session state with migrated data
+        st.session_state[worksheet_key] = df
     
     # Configure column settings with better formatting
     if mode == "Body Weight":
         column_config = {
             'time': st.column_config.SelectboxColumn(
                 t('time'),
-                options=['before', 'after'],
-                default='before',
+                options=[t('before'), t('after')],
+                default=t('before'),
                 disabled=True
             ),
             'observation': st.column_config.TextColumn(t('observation'), disabled=True)
@@ -2351,11 +2511,11 @@ def create_worksheet(mode, experiment_name, project_info):
     else:
         column_config = {
             'time': st.column_config.NumberColumn(
-                f"{t('time')} (min)", 
+                f"{t('time')} ({t('min')})", 
                 min_value=0, 
                 max_value=300, 
                 step=5,
-                format="%d min"
+                format=f"%d {t('min')}"
             ),
             'observation': st.column_config.TextColumn(t('observation'), disabled=True)
         }
@@ -2365,31 +2525,32 @@ def create_worksheet(mode, experiment_name, project_info):
         if mode == "Body Temperature":
             column_config[f'{animal_type}_{i}'] = st.column_config.TextColumn(
                 f'{t(animal_type).capitalize()} {i}',
-                help=f"Temperature for {animal_type} {i} in Celsius (e.g., 37.2)",
+                help=t('temperature_help').format(animal=t(animal_type), num=i),
                 max_chars=5
             )
         elif mode == "Body Weight":
             column_config[f'{animal_type}_{i}'] = st.column_config.TextColumn(
                 f'{t(animal_type).capitalize()} {i}',
-                help=f"Weight for {animal_type} {i} in grams",
+                help=t('weight_help').format(animal=t(animal_type), num=i),
                 max_chars=6
             )
         elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
             column_config[f'{animal_type}_{i}'] = st.column_config.SelectboxColumn(
                 f'{t(animal_type).capitalize()} {i}',
-                help=f"Click to toggle between Normal and Abnormal for {animal_type} {i}",
-                options=['Normal', 'Abnormal'],
-                default='Normal'
+                help=t('binary_help').format(animal=t(animal_type), num=i),
+                options=[t('normal'), t('abnormal')],
+                default=t('normal')
             )
         else:
+            # General Behavior: Default score
             column_config[f'{animal_type}_{i}'] = st.column_config.TextColumn(
                 f'{t(animal_type).capitalize()} {i}',
-                help=f"Score for {animal_type} {i}. Use appropriate scoring system for the mode",
+                help=t('score_help').format(animal=t(animal_type), num=i),
                 max_chars=5
             )
     
-    # Create two tabs for different interaction modes
-    tab1, tab2 = st.tabs([t('manual_save'), t('auto_save')])
+    # Create three tabs for different interaction modes
+    tab1, tab2, tab3 = st.tabs([t('manual_save'), t('auto_save'), t('upload_data')])
     
     with tab1:
         st.markdown(f"**{t('manual_save')}**")
@@ -2442,9 +2603,14 @@ def create_worksheet(mode, experiment_name, project_info):
             
             # Fix: Ensure state changes are properly handled
             if submitted:
+                # Migrate data to Chinese if needed before saving
+                final_df = edited_df.copy()
+                if st.session_state.language == 'zh':
+                    final_df = migrate_data_to_chinese(final_df, mode)
+                
                 # Update session state with edited data
-                st.session_state[worksheet_key] = edited_df.copy()
-                st.session_state.worksheet_data[f"{experiment_name}_{mode}"] = edited_df.copy()
+                st.session_state[worksheet_key] = final_df
+                st.session_state.worksheet_data[f"{experiment_name}_{mode}"] = final_df
                 st.session_state.save_status[experiment_name] = "saved"
                 # Clear temp changes
                 if temp_key in st.session_state:
@@ -2473,7 +2639,7 @@ def create_worksheet(mode, experiment_name, project_info):
                         if mode == "Body Temperature":
                             new_row[f'{animal_type}_{i}'] = '37.0'
                         elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
-                            new_row[f'{animal_type}_{i}'] = 'Normal'
+                            new_row[f'{animal_type}_{i}'] = t('normal')
                         else:
                             new_row[f'{animal_type}_{i}'] = '0'
                     new_rows.append(new_row)
@@ -2498,7 +2664,7 @@ def create_worksheet(mode, experiment_name, project_info):
         with col1:
             if st.button(t('fill_random'), use_container_width=True, key=f"random_auto_{worksheet_key}"):
                 if mode == "Body Weight":
-                    times = ['before', 'after']
+                    times = [t('before'), t('after')]
                 else:
                     times = sorted(st.session_state[worksheet_key]['time'].unique())
                 random_df = generate_random_data(mode, times, num_animals, animal_type)
@@ -2517,8 +2683,13 @@ def create_worksheet(mode, experiment_name, project_info):
         
         # Auto-save the changes
         if not edited_df_auto.equals(st.session_state[worksheet_key]):
-            st.session_state[worksheet_key] = edited_df_auto.copy()
-            st.session_state.worksheet_data[f"{experiment_name}_{mode}"] = edited_df_auto.copy()
+            # Migrate data to Chinese if needed before saving
+            final_df_auto = edited_df_auto.copy()
+            if st.session_state.language == 'zh':
+                final_df_auto = migrate_data_to_chinese(final_df_auto, mode)
+            
+            st.session_state[worksheet_key] = final_df_auto
+            st.session_state.worksheet_data[f"{experiment_name}_{mode}"] = final_df_auto
             st.session_state.save_status[experiment_name] = "saved"
         
         # Show save status with timestamp
@@ -2549,7 +2720,7 @@ def create_worksheet(mode, experiment_name, project_info):
                             if mode == "Body Temperature":
                                 new_row[f'{animal_type}_{i}'] = '37.0'
                             elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
-                                new_row[f'{animal_type}_{i}'] = 'Normal'
+                                new_row[f'{animal_type}_{i}'] = t('normal')
                             else:
                                 new_row[f'{animal_type}_{i}'] = '0'
                         new_rows.append(new_row)
@@ -2558,6 +2729,66 @@ def create_worksheet(mode, experiment_name, project_info):
                     new_df = pd.concat([edited_df_auto, pd.DataFrame(new_rows)], ignore_index=True)
                     st.session_state[worksheet_key] = new_df
                     st.rerun()
+    
+    with tab3:
+        st.markdown(f"**{t('upload_data')}**")
+        st.info(t('upload_help'))
+        
+        # File upload section
+        uploaded_file = st.file_uploader(
+            t('upload_csv_excel'),
+            type=['csv', 'xlsx', 'xls'],
+            help=t('upload_help'),
+            key=f"upload_{worksheet_key}"
+        )
+        
+        if uploaded_file is not None:
+            # Process uploaded file
+            processed_df, message = process_uploaded_file(uploaded_file, mode, animal_type, num_animals)
+            
+            if processed_df is not None:
+                st.success(t('file_uploaded_success'))
+                
+                # Show preview of uploaded data
+                st.subheader("Data Preview")
+                st.dataframe(processed_df.head(10), use_container_width=True)
+                
+                # Import options
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(t('replace_data'), use_container_width=True, type="primary"):
+                        st.session_state[worksheet_key] = processed_df
+                        st.session_state.worksheet_data[f"{experiment_name}_{mode}"] = processed_df
+                        st.success("Data replaced successfully!")
+                        st.rerun()
+                
+                with col2:
+                    if st.button(t('merge_data'), use_container_width=True):
+                        # Merge with existing data
+                        existing_df = st.session_state[worksheet_key]
+                        merged_df = pd.concat([existing_df, processed_df], ignore_index=True)
+                        st.session_state[worksheet_key] = merged_df
+                        st.session_state.worksheet_data[f"{experiment_name}_{mode}"] = merged_df
+                        st.success("Data merged successfully!")
+                        st.rerun()
+            else:
+                st.error(message)
+        
+        # Download template section
+        st.markdown("---")
+        st.subheader(t('download_template'))
+        
+        # Create template download
+        template_df = st.session_state[worksheet_key].copy()
+        csv_data = template_df.to_csv(index=False)
+        
+        st.download_button(
+            label=t('download_template'),
+            data=csv_data,
+            file_name=f"{experiment_name}_{mode}_template.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
     
     # Get the current dataframe (from whichever tab was used)
     current_df = st.session_state[worksheet_key]
@@ -2640,7 +2871,7 @@ def create_worksheet(mode, experiment_name, project_info):
             
             if mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
                 # For binary modes, calculate percentage abnormal
-                abnormal_count = sum(1 for score in animal_scores if str(score).lower() == 'abnormal')
+                abnormal_count = sum(1 for score in animal_scores if str(score).lower() == t('abnormal').lower())
                 percent_abnormal = (abnormal_count / len(animal_scores)) * 100 if animal_scores else 0
                 status = t('abnormal') if abnormal_count > 0 else t('normal')
                 
@@ -3050,7 +3281,7 @@ def create_binary_score_line_plot(selected_groups, mode_eng, animal_type, num_an
                         for _, row in time_df.iterrows():
                             for i in range(1, num_animals + 1):
                                 if f'{animal_type}_{i}' in row:
-                                    if str(row[f'{animal_type}_{i}']).lower() == 'abnormal':
+                                    if str(row[f'{animal_type}_{i}']).lower() == t('abnormal').lower():
                                         abnormal_count += 1
                                     total_count += 1
                         
@@ -4182,6 +4413,7 @@ if st.session_state.show_scoring_help:
         - **8**: Severe abnormalities, significant deviations
         - **+/-**: Modifiers (e.g., 4+ = mild to moderate, 4- = very mild)
         - **Normal Range**: 2-6 (scores outside this range indicate abnormalities)
+        - **Default Initialization**: All scores start at 4
         """)
         
         # Autonomic Functions
@@ -4190,6 +4422,7 @@ if st.session_state.show_scoring_help:
         - **Normal**: Standard autonomic responses, normal skin color, regular breathing
         - **Abnormal**: Piloerection, cyanosis, irregular breathing, stertorous breathing
         - **Scoring**: Each observation is marked as Normal or Abnormal
+        - **Default Initialization**: All scores start as Normal
         """)
         
         # Reflex Capabilities
@@ -4198,6 +4431,7 @@ if st.session_state.show_scoring_help:
         - **Normal**: Proper reflex responses, normal gait, appropriate pain response
         - **Abnormal**: Reduced reflexes, abnormal gait, catalepsy, poor pain response
         - **Scoring**: Each reflex test is marked as Normal or Abnormal
+        - **Default Initialization**: All scores start as Normal
         """)
         
         # Body Temperature
@@ -4207,6 +4441,7 @@ if st.session_state.show_scoring_help:
         - **Mice**: Typically 37.0°C ± 0.5°C
         - **Rats**: Typically 37.5°C ± 0.5°C
         - **Scoring**: Record actual temperature values in degrees Celsius
+        - **Default Initialization**: Mice start at 37.0°C, Rats at 37.5°C
         """)
         
         # Body Weight
@@ -4216,6 +4451,7 @@ if st.session_state.show_scoring_help:
         - **Calculation**: Automatic weight change calculation
         - **Normal**: Slight weight loss due to stress/food restriction
         - **Scoring**: Record actual weight values, changes calculated automatically
+        - **Default Initialization**: Mice start at 25.0g, Rats at 250.0g
         """)
         
         # Convulsive Behaviors
@@ -4224,6 +4460,7 @@ if st.session_state.show_scoring_help:
         - **Normal**: No convulsive activity, normal excitability
         - **Abnormal**: Tremors, convulsions, stereotypy, excessive excitability
         - **Scoring**: Each behavior is marked as Normal or Abnormal
+        - **Default Initialization**: All scores start as Normal
         """)
         
         st.markdown("---")
