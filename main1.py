@@ -13,6 +13,44 @@ import datetime
 import matplotlib as mpl
 from matplotlib import font_manager
 import platform
+import zipfile
+import json
+import pickle
+
+# Configure matplotlib for Chinese font support
+plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans', 'Arial Unicode MS', 'Microsoft YaHei', 'WenQuanYi Micro Hei']
+plt.rcParams['axes.unicode_minus'] = False  # Fix minus sign display issue
+
+# Try to set up Chinese font
+try:
+    # For Windows
+    if platform.system() == 'Windows':
+        plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'KaiTi']
+    # For macOS
+    elif platform.system() == 'Darwin':
+        plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'PingFang SC', 'Hiragino Sans GB', 'STHeiti']
+    # For Linux
+    else:
+        plt.rcParams['font.sans-serif'] = ['WenQuanYi Micro Hei', 'DejaVu Sans', 'Noto Sans CJK SC']
+    
+    # Clear matplotlib font cache to force reload
+    font_manager._rebuild()
+except Exception as e:
+    print(f"Font configuration warning: {e}")
+
+# Function to ensure proper font loading for plots
+def ensure_chinese_font():
+    """Ensure Chinese font is properly loaded for matplotlib"""
+    try:
+        # Test if Chinese characters can be displayed
+        fig, ax = plt.subplots(figsize=(1, 1))
+        ax.text(0.5, 0.5, '测试', fontsize=12)
+        plt.close(fig)
+        return True
+    except:
+        # Fallback to system default
+        plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
+        return False
 from deepseek_ai import DeepSeekAI
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -66,10 +104,191 @@ if 'save_status' not in st.session_state:
     st.session_state.save_status = {}
 if 'show_project_creation' not in st.session_state:
     st.session_state.show_project_creation = False
+if 'show_import_dialog' not in st.session_state:
+    st.session_state.show_import_dialog = False
 if 'comparison_groups' not in st.session_state:
     st.session_state.comparison_groups = {}
+if 'group_projects' not in st.session_state:
+    st.session_state.group_projects = {}  # Maps group names to project IDs
+if 'all_experiment_charts' not in st.session_state:
+    st.session_state.all_experiment_charts = []  # Store all charts from experiments
 if 'show_scoring_help' not in st.session_state:
     st.session_state.show_scoring_help = False
+
+# Helper function to get groups for a project
+def get_project_groups(project_id):
+    """Get all groups belonging to a specific project"""
+    return [group for group, pid in st.session_state.group_projects.items() if pid == project_id]
+
+# Helper function to capture charts for PowerPoint
+def capture_chart_for_powerpoint(fig, title, mode, chart_type="Plot", description="", add_to_session=True):
+    """Capture a matplotlib figure for inclusion in PowerPoint presentations"""
+    try:
+        # Save figure as bytes
+        img_buffer = BytesIO()
+        fig.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
+        img_buffer.seek(0)
+        chart_data = img_buffer.getvalue()
+        
+        # Store chart information
+        chart_info = {
+            'title': title,
+            'mode': mode,
+            'chart_type': chart_type,
+            'data': chart_data,
+            'description': description,
+            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        # Add to session state only if requested (not for PowerPoint generation)
+        if add_to_session:
+            st.session_state.all_experiment_charts.append(chart_info)
+        
+        return chart_info
+    except Exception as e:
+        st.error(f"Error capturing chart: {str(e)}")
+        return None
+
+# Helper function to clear old charts for a specific project
+def clear_project_charts(project_id):
+    """Clear charts from previous experiments for a specific project"""
+    try:
+        # Keep only charts from the current project
+        if 'all_experiment_charts' in st.session_state:
+            # For now, we'll keep all charts but this could be enhanced to filter by project
+            # if we add project_id to chart_info
+            pass
+    except Exception as e:
+        st.error(f"Error clearing charts: {str(e)}")
+
+# Function to export all project data as ZIP
+def export_project_data_as_zip():
+    """Export all current project data as a ZIP file"""
+    try:
+        if st.session_state.active_project is None:
+            return None, "No active project to export"
+        
+        # Create ZIP buffer
+        zip_buffer = BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Export projects data
+            projects_data = {
+                'projects': st.session_state.projects,
+                'active_project': st.session_state.active_project,
+                'experiments': st.session_state.experiments,
+                'group_projects': st.session_state.group_projects,
+                'comparison_groups': st.session_state.comparison_groups,
+                'language': st.session_state.language,
+                'export_timestamp': datetime.datetime.now().isoformat()
+            }
+            
+            # Add projects data as JSON
+            zip_file.writestr('projects_data.json', json.dumps(projects_data, indent=2, default=str))
+            
+            # Export all worksheet data
+            worksheet_data = {}
+            for key, value in st.session_state.worksheet_data.items():
+                if isinstance(value, pd.DataFrame):
+                    # Convert DataFrame to CSV
+                    csv_buffer = BytesIO()
+                    value.to_csv(csv_buffer, index=False)
+                    csv_buffer.seek(0)
+                    worksheet_data[key] = csv_buffer.getvalue().decode('utf-8')
+            
+            # Add worksheet data as JSON
+            zip_file.writestr('worksheet_data.json', json.dumps(worksheet_data, indent=2))
+            
+            # Export session state data that contains DataFrames
+            session_data = {}
+            for key, value in st.session_state.items():
+                if isinstance(value, pd.DataFrame):
+                    # Convert DataFrame to CSV
+                    csv_buffer = BytesIO()
+                    value.to_csv(csv_buffer, index=False)
+                    csv_buffer.seek(0)
+                    session_data[key] = csv_buffer.getvalue().decode('utf-8')
+                elif key.startswith('worksheet_') and isinstance(value, pd.DataFrame):
+                    # Handle worksheet session state
+                    csv_buffer = BytesIO()
+                    value.to_csv(csv_buffer, index=False)
+                    csv_buffer.seek(0)
+                    session_data[key] = csv_buffer.getvalue().decode('utf-8')
+            
+            # Add session data as JSON
+            if session_data:
+                zip_file.writestr('session_data.json', json.dumps(session_data, indent=2))
+            
+            # Add export info
+            export_info = {
+                'export_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'version': '1.0',
+                'description': 'FOB Test Analysis Dashboard Project Export',
+                'project_name': st.session_state.projects[st.session_state.active_project]['name'] if st.session_state.active_project else 'Unknown'
+            }
+            zip_file.writestr('export_info.json', json.dumps(export_info, indent=2))
+        
+        zip_buffer.seek(0)
+        return zip_buffer.getvalue(), "Export successful"
+        
+    except Exception as e:
+        return None, f"Export failed: {str(e)}"
+
+# Function to import project data from ZIP
+def import_project_data_from_zip(uploaded_file):
+    """Import project data from uploaded ZIP file"""
+    try:
+        # Read ZIP file
+        zip_buffer = BytesIO(uploaded_file.read())
+        
+        with zipfile.ZipFile(zip_buffer, 'r') as zip_file:
+            # Check if required files exist
+            required_files = ['projects_data.json', 'worksheet_data.json']
+            if not all(file in zip_file.namelist() for file in required_files):
+                return False, "Invalid ZIP file: Missing required data files"
+            
+            # Load projects data
+            projects_data = json.loads(zip_file.read('projects_data.json').decode('utf-8'))
+            
+            # Clear current session state (ask for confirmation in UI)
+            st.session_state.projects = projects_data['projects']
+            st.session_state.active_project = projects_data['active_project']
+            st.session_state.experiments = projects_data['experiments']
+            st.session_state.group_projects = projects_data.get('group_projects', {})
+            st.session_state.comparison_groups = projects_data.get('comparison_groups', {})
+            
+            # Set language if available
+            if 'language' in projects_data:
+                st.session_state.language = projects_data['language']
+            
+            # Load worksheet data
+            worksheet_data = json.loads(zip_file.read('worksheet_data.json').decode('utf-8'))
+            for key, csv_data in worksheet_data.items():
+                try:
+                    df = pd.read_csv(BytesIO(csv_data.encode('utf-8')))
+                    st.session_state.worksheet_data[key] = df
+                except Exception as e:
+                    st.warning(f"Could not load worksheet data for {key}: {str(e)}")
+            
+            # Load session data if available
+            if 'session_data.json' in zip_file.namelist():
+                session_data = json.loads(zip_file.read('session_data.json').decode('utf-8'))
+                for key, csv_data in session_data.items():
+                    try:
+                        df = pd.read_csv(BytesIO(csv_data.encode('utf-8')))
+                        st.session_state[key] = df
+                    except Exception as e:
+                        st.warning(f"Could not load session data for {key}: {str(e)}")
+            
+            # Load export info if available
+            export_info = {}
+            if 'export_info.json' in zip_file.namelist():
+                export_info = json.loads(zip_file.read('export_info.json').decode('utf-8'))
+            
+            return True, export_info
+            
+    except Exception as e:
+        return False, f"Import failed: {str(e)}"
 
 # DeepSeek AI Configuration
 # Get your API key from: https://platform.deepseek.com/
@@ -394,7 +613,7 @@ def generate_tutor_response(user_message, language='en'):
    - 体重：实验前后体重测量，自动计算变化
    - 惊厥行为：正常/异常二元评分
 3. **数据录入**：手动保存和自动保存两种模式，支持添加时间点
-4. **组管理**：多组实验，可设置对照组
+4. **管理组**：多组实验，可设置对照组
 5. **数据分析**：异常事件跟踪，统计分析和可视化
 6. **报告生成**：综合报告导出，图表下载
 7. **多语言支持**：中英文界面
@@ -709,6 +928,13 @@ def create_powerpoint_presentation(project_data, mode_eng, language='en', file_s
             The study generated {len(charts_data)} detailed visualizations across all analysis modes, including group comparison analyses, time series trend evaluations, and comprehensive statistical summaries. Each mode was evaluated using standardized scoring criteria and appropriate statistical methods to ensure reliable detection of treatment-related effects.
 
             The comprehensive nature of this analysis allows for identification of subtle neurological changes that may not be apparent when examining individual parameters in isolation. This multi-parameter approach provides researchers with a complete picture of treatment effects across multiple neurological and physiological domains, supporting informed decision-making in drug development and safety assessment.
+            
+            📊 Chart Summary: {len(charts_data)} total visualizations including:
+            • Real-time experiment analysis charts
+            • Group comparison plots
+            • Statistical analysis summaries
+            • Time series trend analysis
+            • Comprehensive mode-specific evaluations
             """
             apply_template_styling(slide, overview_title, overview_content)
             
@@ -1124,6 +1350,8 @@ TRANSLATIONS = {
         'status': 'Status',
         'normal': 'Normal',
         'abnormal': 'Abnormal',
+        'pale': 'Pale',
+        'cyanosis': 'Cyanosis',
         'abnormal_episodes': 'Abnormal Episodes (Onset/Offset)',
         'onset_time': 'Onset Time',
         'offset_time': 'Offset Time',
@@ -1174,6 +1402,19 @@ TRANSLATIONS = {
         'start_instruction': 'Click \'Create New Project\' to get started',
         'edit_tip': '**Choose your editing mode**: Use \'Edit with Save Button\' to batch your changes, or \'Auto-Save Mode\' for instant saves.',
         'no_groups': 'No groups created yet',
+        'group_management': 'Group Management',
+        'rename_group': 'Rename Group',
+        'new_group_name': 'New Group Name:',
+        'rename_group_btn': 'Rename Group',
+        'delete_group': 'Delete Group',
+        'confirm_deletion': 'Confirm deletion',
+        'export_project': 'Export Project Data',
+        'import_project': 'Import Project Data',
+        'export_success': 'Project data exported successfully!',
+        'import_success': 'Project data imported successfully!',
+        'import_warning': 'This will replace all current data. Continue?',
+        'no_project_to_export': 'No active project to export',
+        'invalid_zip_file': 'Invalid ZIP file format',
         'filling_all': 'Filling all worksheets with random data...',
         'fill_complete': 'All worksheets filled with random data!',
         'download_plot': 'Download Plot',
@@ -1217,6 +1458,7 @@ TRANSLATIONS = {
         'temperature_help': 'Temperature for {animal} {num} in Celsius (e.g., 37.2)',
         'weight_help': 'Weight for {animal} {num} in grams',
         'binary_help': 'Click to toggle between Normal and Abnormal for {animal} {num}',
+        'skin_color_help': 'Skin color for {animal} {num}: Normal, Pale, or Cyanosis',
         'score_help': 'Score for {animal} {num}. Use 0/4/8 system',
         'before': 'Before',
         'after': 'After',
@@ -1286,6 +1528,8 @@ TRANSLATIONS = {
         'status': '状态',
         'normal': '正常',
         'abnormal': '异常',
+        'pale': '发白',
+        'cyanosis': '发绀',
         'abnormal_episodes': '异常事件（起始/结束）',
         'onset_time': '起始时间',
         'offset_time': '结束时间',
@@ -1336,6 +1580,19 @@ TRANSLATIONS = {
         'start_instruction': '点击"创建新项目"开始',
         'edit_tip': '**选择编辑模式**：使用"编辑后保存"批量更改，或使用"自动保存模式"即时保存。',
         'no_groups': '尚未创建组',
+        'group_management': '管理组',
+        'rename_group': '重命名组',
+        'new_group_name': '新组名称:',
+        'rename_group_btn': '重命名组',
+        'delete_group': '删除组',
+        'confirm_deletion': '确认删除',
+        'export_project': '导出项目数据',
+        'import_project': '导入项目数据',
+        'export_success': '项目数据导出成功！',
+        'import_success': '项目数据导入成功！',
+        'import_warning': '这将替换所有当前数据。继续吗？',
+        'no_project_to_export': '没有活动项目可导出',
+        'invalid_zip_file': '无效的ZIP文件格式',
         'filling_all': '正在为所有工作表填充随机数据...',
         'fill_complete': '所有工作表已填充随机数据！',
         'download_plot': '下载图表',
@@ -1379,6 +1636,7 @@ TRANSLATIONS = {
         'temperature_help': '{animal} {num}的体温，以摄氏度为单位（例如：37.2）',
         'weight_help': '{animal} {num}的体重，以克为单位',
         'binary_help': '点击切换{animal} {num}的正常/异常状态',
+        'skin_color_help': '{animal} {num}的皮肤颜色：正常、发白或发绀',
         'score_help': '{animal} {num}的分数。使用0/4/8评分系统',
         'before': '实验前',
         'after': '实验后',
@@ -1421,7 +1679,6 @@ OBSERVATION_TRANSLATIONS = {
         # Autonomic observations
         'piloerection': 'piloerection',
         'skin color': 'skin color',
-        'cyanosis': 'cyanosis',
         'respiratory activity': 'respiratory activity',
         'irregular breathing': 'irregular breathing',
         'stertorous': 'stertorous',
@@ -1467,7 +1724,6 @@ OBSERVATION_TRANSLATIONS = {
         # Autonomic observations
         'piloerection': '立毛',
         'skin color': '皮肤颜色',
-        'cyanosis': '发绀',
         'respiratory activity': '呼吸活动',
         'irregular breathing': '呼吸不规则',
         'stertorous': '鼾声呼吸',
@@ -1632,12 +1888,18 @@ with st.sidebar:
     
     # Language selection
     st.subheader("Language")
-    st.selectbox(
+    selected_language = st.selectbox(
         t('language'),
         options=['en', 'zh'],
         format_func=lambda x: 'English' if x == 'en' else '中文',
-        key='language'
+        index=0 if st.session_state.language == 'en' else 1,
+        key='language_selector'
     )
+    
+    # Handle language change
+    if selected_language != st.session_state.language:
+        st.session_state.language = selected_language
+        st.rerun()
     
     st.markdown("---")
     
@@ -1685,19 +1947,52 @@ with st.sidebar:
             **Animals per Group:** {project['num_animals']}
             """)
             
+            # Export/Import buttons
+            st.markdown("**📤 Export/Import:**")
+            col_export, col_import = st.columns(2)
+            
+            with col_export:
+                if st.button("📤 Export", use_container_width=True, help="Download project data as ZIP file"):
+                    with st.spinner("Exporting project data..."):
+                        zip_data, message = export_project_data_as_zip()
+                        if zip_data:
+                            project_name = project['name'].replace(' ', '_')
+                            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                            filename = f"{project_name}_export_{timestamp}.zip"
+                            
+                            st.download_button(
+                                label="📥 Download ZIP",
+                                data=zip_data,
+                                file_name=filename,
+                                mime="application/zip",
+                                use_container_width=True
+                            )
+                            st.success(t('export_success'))
+                        else:
+                            st.error(message)
+            
+            with col_import:
+                if st.button("📥 Import", use_container_width=True, help="Upload ZIP file to restore project data"):
+                    st.session_state.show_import_dialog = True
+            
             # Project management buttons
             col_delete, col_rename = st.columns(2)
             with col_delete:
                 if st.button("🗑️ Delete", use_container_width=True, key="delete_project"):
                     if st.session_state.active_project in st.session_state.projects:
                         project_name = st.session_state.projects[st.session_state.active_project]['name']
-                        del st.session_state.projects[st.session_state.active_project]
+                        project_id_to_delete = st.session_state.active_project
                         
                         # Remove related experiments
-                        experiments_to_remove = [exp for exp in st.session_state.experiments.keys() 
-                                               if exp.startswith(project_name)]
-                        for exp in experiments_to_remove:
-                            del st.session_state.experiments[exp]
+                        project_groups_to_remove = get_project_groups(project_id_to_delete)
+                        for group in project_groups_to_remove:
+                            if group in st.session_state.experiments:
+                                del st.session_state.experiments[group]
+                            if group in st.session_state.group_projects:
+                                del st.session_state.group_projects[group]
+                        
+                        # Remove the project
+                        del st.session_state.projects[project_id_to_delete]
                         
                         # Set active project to None or first available
                         if st.session_state.projects:
@@ -1820,7 +2115,6 @@ GENERAL_BEHAVIOR_OBSERVATIONS = [
 AUTONOMIC_OBSERVATIONS = [
     'piloerection',
     'skin color',
-    'cyanosis',
     'respiratory activity',
     'irregular breathing',
     'stertorous'
@@ -1875,14 +2169,21 @@ def save_plot_as_bytes(fig):
     return img_buffer.getvalue()
 
 # Helper function to parse the scoring system
-def parse_score(score_str):
+def parse_score(score_str, observation=None):
     """Parse 0/4/8 scoring system with +/- modifiers or Normal/Abnormal"""
     if pd.isna(score_str):
         return np.nan
     
-    # Handle binary Normal/Abnormal
-    if str(score_str).lower() in ['normal', 'abnormal']:
-        return 0 if str(score_str).lower() == 'normal' else 1
+    # Handle binary Normal/Abnormal (both English and Chinese)
+    score_lower = str(score_str).lower()
+    
+    # Check for normal values
+    if score_lower in ['normal'] or score_lower in [t('normal').lower()]:
+        return 0  # Normal is 0
+    
+    # Check for abnormal values (including pale and cyanosis)
+    if score_lower in ['abnormal', 'pale', 'cyanosis'] or score_lower in [t('abnormal').lower(), t('pale').lower(), t('cyanosis').lower()]:
+        return 1  # All abnormal variations are 1
     
     # Convert to string if it's a number
     if isinstance(score_str, (int, float)):
@@ -1905,9 +2206,9 @@ def parse_score(score_str):
     return value
 
 # Function to calculate mean score from animal data
-def calculate_mean_score(animal_scores):
+def calculate_mean_score(animal_scores, observation=None):
     """Calculate mean score from individual animal scores"""
-    parsed_scores = [parse_score(score) for score in animal_scores if pd.notna(score)]
+    parsed_scores = [parse_score(score, observation) for score in animal_scores if pd.notna(score)]
     if parsed_scores:
         return np.mean(parsed_scores)
     return np.nan
@@ -2001,13 +2302,24 @@ def generate_random_data(mode, times, num_animals=8, animal_type="mouse"):
         for time in times:
             for obs in observations:
                 data['time'].append(time)
-                data['observation'].append(t_obs(obs))
+                data['observation'].append(t_obs(obs))  # obs is the key, t_obs translates it
                 for i in range(1, num_animals + 1):
-                    # 80% normal, 20% abnormal
-                    if np.random.random() < 0.8:
-                        data[f'{animal_type}_{i}'].append(t('normal'))
+                    # Special handling for skin color observation
+                    if obs == 'skin color':
+                        # 70% normal, 15% pale, 15% cyanosis
+                        rand = np.random.random()
+                        if rand < 0.7:
+                            data[f'{animal_type}_{i}'].append(t('normal'))
+                        elif rand < 0.85:
+                            data[f'{animal_type}_{i}'].append(t('pale'))
+                        else:
+                            data[f'{animal_type}_{i}'].append(t('cyanosis'))
                     else:
-                        data[f'{animal_type}_{i}'].append(t('abnormal'))
+                        # 80% normal, 20% abnormal
+                        if np.random.random() < 0.8:
+                            data[f'{animal_type}_{i}'].append(t('normal'))
+                        else:
+                            data[f'{animal_type}_{i}'].append(t('abnormal'))
         
         return pd.DataFrame(data)
     
@@ -2049,8 +2361,7 @@ def fill_all_worksheets_with_random_data():
     num_animals = project.get('num_animals', 8)
     
     # Get all groups for this project
-    project_groups = [exp for exp in st.session_state.experiments.keys() 
-                     if exp.startswith(project['name'])]
+    project_groups = get_project_groups(st.session_state.active_project)
     
     filled_count = 0
     
@@ -2096,14 +2407,18 @@ def fill_all_worksheets_with_random_data():
                 data = []
                 for time in times:
                     for obs in observations:
-                        row = {'time': time, 'observation': obs}
+                        row = {'time': time, 'observation': t_obs(obs)}
                         for i in range(1, num_animals + 1):
                             if mode == "Body Temperature":
                                 row[f'{animal_type}_{i}'] = '37.0'
                             elif mode == "Body Weight":
                                 row[f'{animal_type}_{i}'] = '25.0' if animal_type == 'mouse' else '250.0'
                             elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
-                                row[f'{animal_type}_{i}'] = 'Normal'
+                                # Special handling for skin color observation
+                                if obs == 'skin color':
+                                    row[f'{animal_type}_{i}'] = t('normal')
+                                else:
+                                    row[f'{animal_type}_{i}'] = t('normal')
                             else:
                                 row[f'{animal_type}_{i}'] = '0'
                         data.append(row)
@@ -2167,9 +2482,7 @@ def process_uploaded_file(uploaded_file, mode, animal_type, num_animals):
         if not is_valid:
             return None, f"{t('template_mismatch')}: {message}"
         
-        # Migrate to Chinese if needed
-        if st.session_state.language == 'zh':
-            df = migrate_data_to_chinese(df, mode)
+        # Data will be displayed in the current language without migration
         
         return df, "Success"
         
@@ -2262,7 +2575,10 @@ def process_data_with_episodes(df, mode, animal_type="mouse", num_animals=8):
             
             if mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
                 # For binary modes, count percentage of abnormal
-                abnormal_count = sum(1 for score in animal_scores if str(score).lower() == t('abnormal').lower())
+                # For all observations in Autonomic mode: pale and cyanosis are both abnormal
+                abnormal_count = sum(1 for score in animal_scores 
+                                   if str(score).lower() in [t('abnormal').lower(), t('pale').lower(), t('cyanosis').lower()])
+                
                 mean_score = (abnormal_count / len(animal_scores)) * 100 if animal_scores else 0
                 is_abnormal = abnormal_count > 0  # Any animal abnormal
             else:
@@ -2491,11 +2807,8 @@ def create_worksheet(mode, experiment_name, project_info):
     # Get the dataframe from session state and migrate to Chinese if needed
     df = st.session_state[worksheet_key].copy()
     
-    # Migrate existing English data to Chinese if language is Chinese
-    if st.session_state.language == 'zh':
-        df = migrate_data_to_chinese(df, mode)
-        # Update session state with migrated data
-        st.session_state[worksheet_key] = df
+    # Don't migrate existing data - just use it as is
+    # The translation will happen in the display functions
     
     # Configure column settings with better formatting
     if mode == "Body Weight":
@@ -2523,30 +2836,55 @@ def create_worksheet(mode, experiment_name, project_info):
     # Add animal columns configuration
     for i in range(1, num_animals + 1):
         if mode == "Body Temperature":
-            column_config[f'{animal_type}_{i}'] = st.column_config.TextColumn(
+            column_config[f'{animal_type}_{i}'] = st.column_config.NumberColumn(
                 f'{t(animal_type).capitalize()} {i}',
                 help=t('temperature_help').format(animal=t(animal_type), num=i),
-                max_chars=5
+                min_value=30.0,
+                max_value=45.0,
+                step=0.1,
+                format="%.1f °C"
             )
         elif mode == "Body Weight":
-            column_config[f'{animal_type}_{i}'] = st.column_config.TextColumn(
+            column_config[f'{animal_type}_{i}'] = st.column_config.NumberColumn(
                 f'{t(animal_type).capitalize()} {i}',
                 help=t('weight_help').format(animal=t(animal_type), num=i),
-                max_chars=6
+                min_value=0.0,
+                max_value=1000.0,
+                step=0.1,
+                format="%.1f g"
             )
         elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
-            column_config[f'{animal_type}_{i}'] = st.column_config.SelectboxColumn(
-                f'{t(animal_type).capitalize()} {i}',
-                help=t('binary_help').format(animal=t(animal_type), num=i),
-                options=[t('normal'), t('abnormal')],
-                default=t('normal')
+            # Check if this dataframe contains skin color observations
+            df = st.session_state.get(worksheet_key, pd.DataFrame())
+            has_skin_color = not df.empty and 'observation' in df.columns and any(
+                obs.lower() in ['skin color', '皮肤颜色'] for obs in df['observation'].unique()
             )
+            
+            if has_skin_color:
+                # Use expanded options for all rows when skin color is present
+                column_config[f'{animal_type}_{i}'] = st.column_config.SelectboxColumn(
+                    f'{t(animal_type).capitalize()} {i}',
+                    help=t('skin_color_help').format(animal=t(animal_type), num=i),
+                    options=[t('normal'), t('abnormal'), t('pale'), t('cyanosis')],
+                    default=t('normal')
+                )
+            else:
+                # Standard binary options
+                column_config[f'{animal_type}_{i}'] = st.column_config.SelectboxColumn(
+                    f'{t(animal_type).capitalize()} {i}',
+                    help=t('binary_help').format(animal=t(animal_type), num=i),
+                    options=[t('normal'), t('abnormal')],
+                    default=t('normal')
+                )
         else:
             # General Behavior: Default score
-            column_config[f'{animal_type}_{i}'] = st.column_config.TextColumn(
+            column_config[f'{animal_type}_{i}'] = st.column_config.NumberColumn(
                 f'{t(animal_type).capitalize()} {i}',
                 help=t('score_help').format(animal=t(animal_type), num=i),
-                max_chars=5
+                min_value=0.0,
+                max_value=20.0,
+                step=0.5,
+                format="%.1f"
             )
     
     # Create three tabs for different interaction modes
@@ -2603,10 +2941,8 @@ def create_worksheet(mode, experiment_name, project_info):
             
             # Fix: Ensure state changes are properly handled
             if submitted:
-                # Migrate data to Chinese if needed before saving
+                # Save data as is (no migration needed)
                 final_df = edited_df.copy()
-                if st.session_state.language == 'zh':
-                    final_df = migrate_data_to_chinese(final_df, mode)
                 
                 # Update session state with edited data
                 st.session_state[worksheet_key] = final_df
@@ -2683,10 +3019,8 @@ def create_worksheet(mode, experiment_name, project_info):
         
         # Auto-save the changes
         if not edited_df_auto.equals(st.session_state[worksheet_key]):
-            # Migrate data to Chinese if needed before saving
+            # Save data as is (no migration needed)
             final_df_auto = edited_df_auto.copy()
-            if st.session_state.language == 'zh':
-                final_df_auto = migrate_data_to_chinese(final_df_auto, mode)
             
             st.session_state[worksheet_key] = final_df_auto
             st.session_state.worksheet_data[f"{experiment_name}_{mode}"] = final_df_auto
@@ -2871,7 +3205,10 @@ def create_worksheet(mode, experiment_name, project_info):
             
             if mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
                 # For binary modes, calculate percentage abnormal
-                abnormal_count = sum(1 for score in animal_scores if str(score).lower() == t('abnormal').lower())
+                # For all observations in Autonomic mode: pale and cyanosis are both abnormal
+                abnormal_count = sum(1 for score in animal_scores 
+                                   if str(score).lower() in [t('abnormal').lower(), t('pale').lower(), t('cyanosis').lower()])
+                
                 percent_abnormal = (abnormal_count / len(animal_scores)) * 100 if animal_scores else 0
                 status = t('abnormal') if abnormal_count > 0 else t('normal')
                 
@@ -2993,6 +3330,10 @@ def create_comparative_plot(selected_for_viz, mode_eng, project, comparison_grou
 
 def create_body_weight_comparison_plot(valid_groups, mode_eng, animal_type, num_animals, comparison_group):
     """Create comparison plot for Body Weight mode"""
+    # Ensure Chinese font is loaded if language is Chinese
+    if st.session_state.language == 'zh':
+        ensure_chinese_font()
+    
     fig, ax = plt.subplots(figsize=(14, 8))
     
     group_names = []
@@ -3095,6 +3436,10 @@ def create_body_weight_comparison_plot(valid_groups, mode_eng, animal_type, num_
 
 def create_general_behavior_plot(valid_groups, selected_time, mode_eng, animal_type, num_animals, comparison_group):
     """Create plot for General Behavior mode"""
+    # Ensure Chinese font is loaded if language is Chinese
+    if st.session_state.language == 'zh':
+        ensure_chinese_font()
+    
     fig, ax = plt.subplots(figsize=(12, 8))
     
     overall_means = []
@@ -3169,6 +3514,10 @@ def create_general_behavior_plot(valid_groups, selected_time, mode_eng, animal_t
 
 def create_body_temperature_line_plot(selected_groups, mode_eng, animal_type, num_animals, comparison_group):
     """Create line plot for Body Temperature mode"""
+    # Ensure Chinese font is loaded if language is Chinese
+    if st.session_state.language == 'zh':
+        ensure_chinese_font()
+    
     fig, ax = plt.subplots(figsize=(14, 8))
     
     # Colors for different groups
@@ -3238,6 +3587,10 @@ def create_body_temperature_line_plot(selected_groups, mode_eng, animal_type, nu
 
 def create_binary_score_line_plot(selected_groups, mode_eng, animal_type, num_animals, comparison_group):
     """Create line plot for binary (Normal/Abnormal) scoring modes"""
+    # Ensure Chinese font is loaded if language is Chinese
+    if st.session_state.language == 'zh':
+        ensure_chinese_font()
+    
     # Get observations for this mode
     if mode_eng == "Autonomic and Sensorimotor Functions":
         observations = AUTONOMIC_OBSERVATIONS
@@ -3267,8 +3620,15 @@ def create_binary_score_line_plot(selected_groups, mode_eng, animal_type, num_an
             if worksheet_key in st.session_state:
                 df = st.session_state[worksheet_key]
                 
-                # Filter for this observation
-                obs_df = df[df['observation'] == obs]
+                # Filter for this observation (use translated observation name)
+                obs_translated = t_obs(obs)
+                obs_df = df[df['observation'] == obs_translated]
+                
+                # Debug: Check if we found any data for this observation
+                if obs_df.empty:
+                    # Try to find data with English observation name as fallback
+                    obs_df = df[df['observation'] == obs]
+                
                 times = sorted(obs_df['time'].unique())
                 percentages = []
                 
@@ -3281,7 +3641,9 @@ def create_binary_score_line_plot(selected_groups, mode_eng, animal_type, num_an
                         for _, row in time_df.iterrows():
                             for i in range(1, num_animals + 1):
                                 if f'{animal_type}_{i}' in row:
-                                    if str(row[f'{animal_type}_{i}']).lower() == t('abnormal').lower():
+                                    cell_value = str(row[f'{animal_type}_{i}']).lower()
+                                    # Check for abnormal, pale, or cyanosis (all are considered abnormal)
+                                    if cell_value in [t('abnormal').lower(), t('pale').lower(), t('cyanosis').lower()]:
                                         abnormal_count += 1
                                     total_count += 1
                         
@@ -4003,6 +4365,21 @@ elif st.session_state.ai_powerpoint_active:
     st.subheader("🤖 Generate PowerPoint Presentation")
     st.info("Create a comprehensive presentation with AI-generated content including introduction, experiment design, results, and conclusions.")
     
+    # Chart management section
+    col_charts_info, col_clear_charts = st.columns([3, 1])
+    with col_charts_info:
+        total_experiment_charts = len(st.session_state.all_experiment_charts)
+        if total_experiment_charts > 0:
+            st.success(f"📊 Captured {total_experiment_charts} experiment chart(s) for PowerPoint inclusion")
+        else:
+            st.info("💡 PowerPoint will automatically generate charts for all 6 FOB test modes")
+    
+    with col_clear_charts:
+        if st.button("🗑️ Clear Charts", help="Clear all captured experiment charts"):
+            st.session_state.all_experiment_charts = []
+            st.success("Charts cleared!")
+            st.rerun()
+    
     # Generate charts for all 6 FOB test modes
     charts_data = []
     if st.session_state.active_project is not None:
@@ -4183,13 +4560,52 @@ elif st.session_state.ai_powerpoint_active:
                 # Get current mode
                 mode_eng = st.session_state.mode
                 
-                # Create PowerPoint presentation with charts
+                # Generate plots for ALL modes for this project and capture them
+                all_charts = []
+                
+                # Get all groups for this project
+                project_groups = get_project_groups(st.session_state.active_project)
+                
+                # Define all 6 FOB test modes
+                all_modes = [
+                    "General Behavior",
+                    "Autonomic and Sensorimotor Functions", 
+                    "Reflex Capabilities",
+                    "Body Temperature",
+                    "Body Weight",
+                    "Convulsive Behaviors and Excitability"
+                ]
+                
+                # Generate and capture plots for each mode
+                for mode_eng in all_modes:
+                    if project_groups:
+                        # Create plot for this mode
+                        fig = create_comparative_plot(project_groups, mode_eng, project, None)
+                        
+                        if fig is not None:
+                            # Capture chart for PowerPoint inclusion
+                            chart_title = f"{mode_eng} - Group Comparison"
+                            chart_info = capture_chart_for_powerpoint(
+                                fig, 
+                                chart_title, 
+                                mode_eng, 
+                                "Group Comparison Plot",
+                                f"Comparative analysis showing {mode_eng} results across selected groups",
+                                add_to_session=False
+                            )
+                            if chart_info:
+                                all_charts.append(chart_info)
+                            
+                            # Close the figure to free memory
+                            plt.close(fig)
+                
+                # Create PowerPoint presentation with ALL charts
                 pptx_data = create_powerpoint_presentation(
                     project, 
                     mode_eng, 
                     st.session_state.language, 
                     file_summaries,
-                    charts_data
+                    all_charts
                 )
                 
                 if isinstance(pptx_data, bytes):
@@ -4201,7 +4617,8 @@ elif st.session_state.ai_powerpoint_active:
                         mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                         use_container_width=True
                     )
-                    st.success("PowerPoint presentation generated successfully!")
+                    total_charts_included = len(all_charts)
+                    st.success(f"PowerPoint presentation generated successfully with {total_charts_included} charts from all 6 FOB test modes!")
                     
                     # Show presentation preview
                     st.markdown("### 📋 Presentation Preview")
@@ -4223,6 +4640,14 @@ elif st.session_state.ai_powerpoint_active:
                     8. **Methodology & Experimental Design** - Detailed methods and quality assurance
                     9. **Conclusions & Future Work** - Summary and future directions
                     10. **Additional File Analysis** - {len(file_summaries) if file_summaries else 0} file summaries
+                    
+                    **Charts Included:** {total_charts_included} charts from all 6 FOB test modes:
+                    • General Behavior
+                    • Autonomic and Sensorimotor Functions
+                    • Reflex Capabilities
+                    • Body Temperature
+                    • Body Weight
+                    • Convulsive Behaviors and Excitability
                     
                     **Total: ~30+ Slides**
                     
@@ -4338,8 +4763,7 @@ with st.expander(t('download_templates'), expanded=False):
 
 # Global fill random data button
 if st.session_state.active_project is not None:
-    project_groups = [exp for exp in st.session_state.experiments.keys() 
-                     if exp.startswith(st.session_state.projects[st.session_state.active_project]['name'])]
+    project_groups = get_project_groups(st.session_state.active_project)
     
     if project_groups:
         if st.button(t('fill_all_random'), use_container_width=True, type="secondary"):
@@ -4385,10 +4809,11 @@ if 'show_project_creation' in st.session_state and st.session_state.show_project
                 "num_groups": num_groups
             }
             
-            # Create groups
+            # Create groups with simple names
             for i in range(1, num_groups + 1):
-                group_name = f"{project_name}_Group_{i}"
+                group_name = f"Group_{i}"
                 st.session_state.experiments[group_name] = True
+                st.session_state.group_projects[group_name] = project_id
             
             st.session_state.show_project_creation = False
             st.success(f"{t('create')} '{project_name}' - {num_groups} groups")
@@ -4397,6 +4822,51 @@ if 'show_project_creation' in st.session_state and st.session_state.show_project
         if st.button(t('cancel'), use_container_width=True):
             st.session_state.show_project_creation = False
             st.rerun()
+
+# Import Dialog Modal (appears when triggered from sidebar)
+if 'show_import_dialog' in st.session_state and st.session_state.show_import_dialog:
+    with st.container():
+        st.subheader(t('import_project'))
+        
+        # Warning message
+        st.warning(t('import_warning'))
+        
+        # File uploader
+        uploaded_zip = st.file_uploader(
+            "Choose a ZIP file",
+            type=['zip'],
+            help="Upload a previously exported project ZIP file"
+        )
+        
+        if uploaded_zip is not None:
+            col_import_confirm, col_import_cancel = st.columns(2)
+            
+            with col_import_confirm:
+                if st.button("✅ Import", use_container_width=True, type="primary"):
+                    with st.spinner("Importing project data..."):
+                        success, result = import_project_data_from_zip(uploaded_zip)
+                        
+                        if success:
+                            st.session_state.show_import_dialog = False
+                            st.success(t('import_success'))
+                            
+                            # Show import info if available
+                            if isinstance(result, dict) and 'export_date' in result:
+                                st.info(f"""
+                                **Import Information:**
+                                - Original Export Date: {result.get('export_date', 'Unknown')}
+                                - Project Name: {result.get('project_name', 'Unknown')}
+                                - Version: {result.get('version', 'Unknown')}
+                                """)
+                            
+                            st.rerun()
+                        else:
+                            st.error(f"Import failed: {result}")
+            
+            with col_import_cancel:
+                if st.button("❌ Cancel", use_container_width=True):
+                    st.session_state.show_import_dialog = False
+                    st.rerun()
 
 # Main Content Area
 
@@ -4510,8 +4980,7 @@ else:
     st.session_state.mode = mode_eng
     
     # Get project-specific groups
-    project_groups = [exp for exp in st.session_state.experiments.keys() 
-                     if exp.startswith(project['name'])]
+    project_groups = get_project_groups(st.session_state.active_project)
     
     # Select comparison group
     if project_groups:
@@ -4547,6 +5016,112 @@ else:
             selected_exp = st.selectbox(t('select_group_edit'), project_groups)
             
             if selected_exp:
+                # Group Management Section - Allows users to rename and delete groups
+                with st.expander(f"🔧 {t('group_management')}", expanded=False):
+                    st.markdown(f"**{t('rename_group')}:**")
+                    
+                    # Get current group name (now stored as just the group name)
+                    current_group_name = selected_exp
+                    new_group_name = st.text_input(
+                        t('new_group_name'),
+                        value=current_group_name,
+                        key=f"rename_{selected_exp}",
+                        help="Enter the full new name for this group"
+                    )
+                    
+                    col_rename1, col_rename2 = st.columns([2, 1])
+                    with col_rename1:
+                        if st.button(f"🔄 {t('rename_group_btn')}", key=f"rename_btn_{selected_exp}"):
+                            if new_group_name and new_group_name != current_group_name:
+                                # Use just the user-provided name as the group name
+                                new_group_name_clean = new_group_name.strip()
+                                
+                                # Check if new name already exists
+                                if new_group_name_clean in st.session_state.experiments and new_group_name_clean != selected_exp:
+                                    st.error(f"Group name '{new_group_name_clean}' already exists!")
+                                else:
+                                    # Rename the group
+                                    if selected_exp in st.session_state.experiments:
+                                        # Copy experiment data
+                                        experiment_data = st.session_state.experiments[selected_exp]
+                                        st.session_state.experiments[new_group_name_clean] = experiment_data
+                                        
+                                        # Copy worksheet data
+                                        for mode in ALL_MODES:
+                                            old_key = f"worksheet_{selected_exp}_{mode}"
+                                            new_key = f"worksheet_{new_group_name_clean}_{mode}"
+                                            if old_key in st.session_state:
+                                                st.session_state[new_key] = st.session_state[old_key]
+                                            
+                                            # Update worksheet_data
+                                            old_data_key = f"{selected_exp}_{mode}"
+                                            new_data_key = f"{new_group_name_clean}_{mode}"
+                                            if old_data_key in st.session_state.worksheet_data:
+                                                st.session_state.worksheet_data[new_data_key] = st.session_state.worksheet_data[old_data_key]
+                                        
+                                        # Remove old group
+                                        del st.session_state.experiments[selected_exp]
+                                        
+                                        # Clean up old worksheet data
+                                        for mode in ALL_MODES:
+                                            old_key = f"worksheet_{selected_exp}_{mode}"
+                                            if old_key in st.session_state:
+                                                del st.session_state[old_key]
+                                            
+                                            old_data_key = f"{selected_exp}_{mode}"
+                                            if old_data_key in st.session_state.worksheet_data:
+                                                del st.session_state.worksheet_data[old_data_key]
+                                        
+                                        # Update group-project association
+                                        if selected_exp in st.session_state.group_projects:
+                                            st.session_state.group_projects[new_group_name_clean] = st.session_state.group_projects[selected_exp]
+                                            del st.session_state.group_projects[selected_exp]
+                                        
+                                        # Update comparison groups if this group was selected
+                                        if selected_exp in st.session_state.comparison_groups.get(st.session_state.active_project, []):
+                                            comparison_groups = st.session_state.comparison_groups.get(st.session_state.active_project, [])
+                                            comparison_groups.remove(selected_exp)
+                                            comparison_groups.append(new_group_name_clean)
+                                            st.session_state.comparison_groups[st.session_state.active_project] = comparison_groups
+                                        
+                                        st.success(f"Group renamed from '{selected_exp}' to '{new_group_name_clean}'!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Group not found!")
+                            else:
+                                st.error("Please enter a different group name!")
+                    
+                    with col_rename2:
+                        if st.button(f"🗑️ {t('delete_group')}", key=f"delete_btn_{selected_exp}", type="secondary"):
+                            if st.session_state.experiments.get(selected_exp):
+                                # Confirm deletion
+                                if st.checkbox(f"{t('confirm_deletion')} '{selected_exp}'", key=f"confirm_delete_{selected_exp}"):
+                                    # Remove from experiments
+                                    del st.session_state.experiments[selected_exp]
+                                    
+                                    # Remove worksheet data
+                                    for mode in ALL_MODES:
+                                        old_key = f"worksheet_{selected_exp}_{mode}"
+                                        if old_key in st.session_state:
+                                            del st.session_state[old_key]
+                                        
+                                        old_data_key = f"{selected_exp}_{mode}"
+                                        if old_data_key in st.session_state.worksheet_data:
+                                            del st.session_state.worksheet_data[old_data_key]
+                                    
+                                    # Remove from group-project associations
+                                    if selected_exp in st.session_state.group_projects:
+                                        del st.session_state.group_projects[selected_exp]
+                                    
+                                    # Remove from comparison groups if selected
+                                    if selected_exp in st.session_state.comparison_groups.get(st.session_state.active_project, []):
+                                        comparison_groups = st.session_state.comparison_groups.get(st.session_state.active_project, [])
+                                        comparison_groups.remove(selected_exp)
+                                        st.session_state.comparison_groups[st.session_state.active_project] = comparison_groups
+                                    
+                                    st.success(f"Group '{selected_exp}' deleted successfully!")
+                                    st.rerun()
+                
                 st.info(t('edit_tip'))
                 
                 # Display worksheet
@@ -4757,6 +5332,16 @@ else:
                 fig = create_comparative_plot(selected_for_viz, mode_eng, project, comp_group)
                 
                 if fig is not None:
+                    # Capture chart for PowerPoint inclusion
+                    chart_title = f"{mode_eng} - Group Comparison"
+                    capture_chart_for_powerpoint(
+                        fig, 
+                        chart_title, 
+                        mode_eng, 
+                        "Group Comparison Plot",
+                        f"Comparative analysis showing {mode_eng} results across selected groups"
+                    )
+                    
                     # Display the plot
                     st.pyplot(fig)
                     
