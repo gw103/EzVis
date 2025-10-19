@@ -1481,7 +1481,29 @@ TRANSLATIONS = {
         'template_mismatch': 'File format does not match the expected template. Please check the column structure.',
         'import_data': 'Import Data',
         'replace_data': 'Replace Current Data',
-        'merge_data': 'Merge with Current Data'
+        'merge_data': 'Merge with Current Data',
+        'fob_intro_title': 'FOB (Functional Observational Battery) - Rodent Functional Scale Observation',
+        'fob_intro_desc': 'FOB is a systematic **animal neurobehavioral observation method**, primarily used to assess the effects or toxicity of compounds or drugs on **central nervous system function**. It evaluates the functional status of animals (usually rats or mice) through a series of standardized behavioral, physiological, and neural reflex indicators, providing qualitative and semi-quantitative assessment.',
+        'fob_purpose_title': 'Purpose',
+        'fob_purpose_1': '1. Early screening for **neurotoxicity** of drugs;',
+        'fob_purpose_2': '2. Assist in explaining abnormalities in behavioral or physiological experiments;',
+        'fob_purpose_3': '3. As part of **Safety Pharmacology** or toxicology studies (e.g., ICH S7A/S7B requirements).',
+        'fob_assessment_title': 'Main Assessment Content',
+        'fob_assessment_intro': 'FOB is typically divided into three dimensions:',
+        'fob_assessment_1': '**1. General Behavioral Observations**',
+        'fob_assessment_2': '**2. Reflex and Neuromuscular Function**: Tactile reflex, righting reflex, forelimb/hindlimb grip strength, balance beam test, jumping response, pain reflex',
+        'fob_assessment_3': '**3. Autonomic Function**: Salivation, pupil size, rectal temperature, urination/defecation, breathing pattern and skin color',
+        'fob_applications_title': 'FOB Testing Applications',
+        'fob_applications_1': '1. New drug safety evaluation (e.g., antidepressants, antiepileptics, anesthetics)',
+        'fob_applications_2': '2. Neurotoxicity assessment of industrial chemicals and pesticides',
+        'fob_applications_3': '3. Compare central nervous responses across different species or doses',
+        'fob_results_title': 'Our Result Interpretation',
+        'fob_results_desc': 'Through a **quantitative scoring system**, we record animal performance and compare it with untreated control groups and known drug-treated groups to determine if there are significant differences. If phenomena such as **excitement, lethargy, ataxia, abnormal reflexes** appear, it indicates that the central or peripheral nervous system is affected. We can use the following multi-dimensional quantitative formulas to compare with known drugs and quantify the toxic and side effects of test drugs on the nervous system.',
+        'fob_formulas_title': 'Calculation Formulas',
+        'fob_formula_incidence': '**Incidence**: I = i/N',
+        'fob_formula_abnormality': '**Abnormality**: A = ∑aᵢ/8i',
+        'fob_formula_severity': '**Severity**: S = ∑(aᵢ·b)/∑aᵢ',
+        'fob_formula_legend': 'N: total number of parameters; i: number of abnormal parameters; aᵢ: mouse number of each abnormal parameter; b: percentage of score (score=1, b=25%; score=4, b=100%)'
     },
     'zh': {
         'page_title': 'FOB测试',
@@ -1659,7 +1681,29 @@ TRANSLATIONS = {
         'template_mismatch': '文件格式与预期模板不匹配。请检查列结构。',
         'import_data': '导入数据',
         'replace_data': '替换当前数据',
-        'merge_data': '与当前数据合并'
+        'merge_data': '与当前数据合并',
+        'fob_intro_title': 'FOB（Functional Observational Battery）啮齿动物功能量表观察简介',
+        'fob_intro_desc': 'FOB 是一种系统的**动物神经行为学观察方法**，主要用于评估化合物或药物对**中枢神经系统功能的影响或毒性**。它通过一系列标准化的行为、生理和神经反射指标，对动物（通常为大鼠或小鼠）的功能状态进行定性与半定量评价。',
+        'fob_purpose_title': '一、目的',
+        'fob_purpose_1': '1. 早期筛查药物是否具有**神经毒性（neurotoxicity）**；',
+        'fob_purpose_2': '2. 辅助解释行为学或生理实验中的异常；',
+        'fob_purpose_3': '3. 作为**安全药理学（Safety Pharmacology）或毒理学试验**的组成部分（如ICH S7A/S7B 要求）。',
+        'fob_assessment_title': '二、主要评估内容',
+        'fob_assessment_intro': 'FOB 通常分为三个维度：',
+        'fob_assessment_1': '**1. 一般行为描述（General Observations）**',
+        'fob_assessment_2': '**2. 神经反射与运动协调（Reflex and Neuromuscular Function）**：触觉反射、翻正反射（righting reflex）、前肢/后肢抓握力、平衡木测试、跳跃反应、疼痛反射',
+        'fob_assessment_3': '**3. 自主神经功能（Autonomic Function）**：流涎、瞳孔大小、直肠温度、排尿/排便情况、呼吸模式与皮肤颜色',
+        'fob_applications_title': 'FOB测试可用于：',
+        'fob_applications_1': '1. 新药安全性评价（如抗抑郁药、抗癫痫药、麻醉药）',
+        'fob_applications_2': '2. 工业化学品、农药的神经毒性评估',
+        'fob_applications_3': '3. 比较不同物种或剂量下的中枢神经反应',
+        'fob_results_title': '我们的结果解释',
+        'fob_results_desc': '通过**定量评分系统**，记录动物表现，然后与无药物处理对照组比较和已知药物处理组的比较判断有无显著差异。若有**兴奋、嗜睡、运动失调、异常反射**等现象出现，即提示中枢或外周神经系统受到影响。我们可以用以下多维定量的公式与已知药物比较，定量受试药物对神经系统的毒副作用。',
+        'fob_formulas_title': 'Calculation Formulas:',
+        'fob_formula_incidence': '**Incidence**: I = i/N',
+        'fob_formula_abnormality': '**Abnormality**: A = ∑aᵢ/8i',
+        'fob_formula_severity': '**Severity**: S = ∑(aᵢ·b)/∑aᵢ',
+        'fob_formula_legend': 'N: total number of parameters（总参数数量）; i: number of abnormal parameters（异常参数数量）; aᵢ: mouse number of each abnormal parameter（每个异常参数的小鼠数量）; b: percentage of score（分数百分比，score=1, b=25%; score=4, b=100%）'
     }
 }
 
@@ -2098,6 +2142,38 @@ with st.sidebar:
 # App header
 st.title(t('main_title'))
 st.markdown(t('main_subtitle'))
+
+# FOB Introduction Section
+with st.expander("📖 " + t('fob_intro_title'), expanded=False):
+    st.markdown(t('fob_intro_desc'))
+    
+    st.markdown(f"### {t('fob_purpose_title')}")
+    st.markdown(t('fob_purpose_1'))
+    st.markdown(t('fob_purpose_2'))
+    st.markdown(t('fob_purpose_3'))
+    
+    st.markdown(f"### {t('fob_assessment_title')}")
+    st.markdown(t('fob_assessment_intro'))
+    st.markdown(t('fob_assessment_1'))
+    st.markdown(t('fob_assessment_2'))
+    st.markdown(t('fob_assessment_3'))
+    
+    st.markdown(f"### {t('fob_applications_title')}")
+    st.markdown(t('fob_applications_1'))
+    st.markdown(t('fob_applications_2'))
+    st.markdown(t('fob_applications_3'))
+    
+    st.markdown(f"### {t('fob_results_title')}")
+    st.markdown(t('fob_results_desc'))
+    
+    st.markdown(f"#### {t('fob_formulas_title')}")
+    st.markdown(t('fob_formula_incidence'))
+    st.markdown(t('fob_formula_abnormality'))
+    st.markdown(t('fob_formula_severity'))
+    st.markdown("")
+    st.markdown(f"*{t('fob_formula_legend')}*")
+
+st.markdown("---")
 
 # Constants for modes
 GENERAL_BEHAVIOR_OBSERVATIONS = [
