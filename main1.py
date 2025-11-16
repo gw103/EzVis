@@ -120,6 +120,93 @@ def get_project_groups(project_id):
     """Get all groups belonging to a specific project"""
     return [group for group, pid in st.session_state.group_projects.items() if pid == project_id]
 
+# Helper function to synchronize time points across all worksheets
+def synchronize_time_points_across_worksheets(project_id, new_times, mode=None):
+    """Synchronize time points across all worksheets for a project"""
+    project_groups = get_project_groups(project_id)
+    if not project_groups:
+        return
+    
+    # Always sync to ALL modes (except Body Weight) regardless of which mode triggered it
+    modes = [
+        "General Behavior", 
+        "Autonomic and Sensorimotor Functions", 
+        "Reflex Capabilities",
+        "Body Temperature",
+        "Convulsive Behaviors and Excitability"
+    ]
+    # Note: Body Weight is excluded as it uses 'before'/'after' instead of time points
+    
+    for group in project_groups:
+        for mode_item in modes:
+            worksheet_key = f"worksheet_{group}_{mode_item}"
+            
+            # Get observations for this mode
+            if mode_item == "Autonomic and Sensorimotor Functions":
+                observations = [t_obs(obs) for obs in AUTONOMIC_OBSERVATIONS]
+            elif mode_item == "Reflex Capabilities":
+                observations = [t_obs(obs) for obs in REFLEX_OBSERVATIONS]
+            elif mode_item == "Convulsive Behaviors and Excitability":
+                observations = [t_obs(obs) for obs in CONVULSIVE_OBSERVATIONS]
+            elif mode_item == "Body Temperature":
+                observations = [t_obs('body temperature')]
+            else:  # General Behavior
+                observations = [t_obs(obs) for obs in GENERAL_BEHAVIOR_OBSERVATIONS]
+            
+            # Get existing worksheet or create empty one
+            if worksheet_key in st.session_state:
+                df = st.session_state[worksheet_key].copy()
+                existing_times = sorted(df['time'].unique()) if not df.empty else []
+            else:
+                df = pd.DataFrame()
+                existing_times = []
+            
+            # Combine and sort all times (union of existing and new)
+            all_times = sorted(list(set(existing_times + new_times)))
+            
+            # Get animal type and num_animals from project
+            project = st.session_state.projects.get(project_id, {})
+            animal_type = project.get('animal_type', 'mouse')
+            if animal_type == 'custom':
+                animal_type = project.get('custom_animal_name', 'animal')
+            num_animals = project.get('num_animals', 8)
+            
+            # Rebuild dataframe with synchronized times
+            new_data = []
+            for time in all_times:
+                for obs in observations:
+                    # Check if this time-observation combination already exists
+                    if not df.empty:
+                        existing_row = df[(df['time'] == time) & (df['observation'] == obs)]
+                        if not existing_row.empty:
+                            # Use existing row (preserve data)
+                            new_data.append(existing_row.iloc[0].to_dict())
+                            continue
+                    
+                    # Create new row with default values
+                    row = {'time': time, 'observation': obs}
+                    
+                    for i in range(1, num_animals + 1):
+                        if mode_item == "Body Temperature":
+                            if animal_type == 'mouse':
+                                row[f'{animal_type}_{i}'] = '37.0'
+                            elif animal_type == 'rat':
+                                row[f'{animal_type}_{i}'] = '37.5'
+                            else:
+                                row[f'{animal_type}_{i}'] = '37.2'
+                        elif mode_item in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
+                            row[f'{animal_type}_{i}'] = t('normal')
+                        else:  # General Behavior
+                            row[f'{animal_type}_{i}'] = '4'
+                    new_data.append(row)
+            
+            # Update worksheet with synchronized data, sorted by time
+            if new_data:
+                new_df = pd.DataFrame(new_data)
+                new_df = new_df.sort_values(['time', 'observation']).reset_index(drop=True)
+                st.session_state[worksheet_key] = new_df
+                st.session_state.worksheet_data[f"{group}_{mode_item}"] = new_df
+
 # Helper function to capture charts for PowerPoint
 def capture_chart_for_powerpoint(fig, title, mode, chart_type="Plot", description="", add_to_session=True):
     """Capture a matplotlib figure for inclusion in PowerPoint presentations"""
@@ -296,12 +383,18 @@ def import_project_data_from_zip(uploaded_file):
 # You can also set it as an environment variable: DEEPSEEK_API_KEY
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-16231cff5f244f0a898972cd1e4d0bf0")
 
+# Initialize global deepseek_client
+deepseek_client = None
+
 # Helper function for DeepSeek API calls
 def make_deepseek_api_call(prompt):
     """Make DeepSeek API call"""
-    # Check if client is configured
-    if 'deepseek_client' not in globals() or deepseek_client is None:
-        return "Error: DeepSeek AI is not properly configured. Please restart the application."
+    global deepseek_client
+    
+    # Check if client is configured, if not try to configure it
+    if deepseek_client is None:
+        if not configure_deepseek():
+            return "Error: DeepSeek AI is not properly configured. Please check your API key and try again."
     
     try:
         # Simple API call with DeepSeek
@@ -309,27 +402,38 @@ def make_deepseek_api_call(prompt):
             model="deepseek-chat",
             messages=[
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            temperature=0.7,
+            max_tokens=2000
         )
         return response.choices[0].message.content
         
     except Exception as e:
         error_msg = str(e)
-        return f"Error generating AI response: {error_msg}"
+        # Try to reconfigure if there's an error
+        deepseek_client = None
+        return f"Error generating AI response: {error_msg}. Please check your API key and try again."
 
 # Initialize DeepSeek AI
 def configure_deepseek():
     """Configure DeepSeek AI with stored API key"""
+    global deepseek_client
+    
     try:
+        # Check if API key is valid
+        if not DEEPSEEK_API_KEY or DEEPSEEK_API_KEY == "":
+            return False
+        
         # Create DeepSeek client instance
-        global deepseek_client
         deepseek_client = DeepSeekAI(
             api_key=DEEPSEEK_API_KEY
         )
         return True
         
     except Exception as e:
-        st.error(f"Error configuring DeepSeek AI: {str(e)}")
+        deepseek_client = None
+        if 'st' in globals():
+            st.error(f"Error configuring DeepSeek AI: {str(e)}")
         return False
 
 
@@ -736,6 +840,192 @@ Please answer in English with clear and concise format.
     except Exception as e:
         return f"Error generating file summary: {str(e)}"
 
+def generate_group_specific_description(mode, project_data, language='en'):
+    """Generate group-specific description based on actual data"""
+    try:
+        if not st.session_state.active_project:
+            return "No active project data available."
+        
+        project_id = st.session_state.active_project
+        project_groups = get_project_groups(project_id)
+        
+        if not project_groups:
+            return "No groups available for analysis."
+        
+        # Collect data for each group
+        group_data_summary = []
+        
+        for group in project_groups:
+            worksheet_key = f"worksheet_{group}_{mode}"
+            if worksheet_key in st.session_state:
+                df = st.session_state[worksheet_key]
+                
+                # Calculate statistics based on mode
+                if mode == "Body Weight":
+                    # Get before and after weights
+                    before_df = df[df['time'] == t('before')] if t('before') in df['time'].values else pd.DataFrame()
+                    after_df = df[df['time'] == t('after')] if t('after') in df['time'].values else pd.DataFrame()
+                    
+                    if not before_df.empty and not after_df.empty:
+                        animal_type = project_data.get('animal_type', 'mouse')
+                        if animal_type == 'custom':
+                            animal_type = project_data.get('custom_animal_name', 'animal')
+                        num_animals = project_data.get('num_animals', 8)
+                        
+                        before_weights = []
+                        after_weights = []
+                        for i in range(1, num_animals + 1):
+                            col = f'{animal_type}_{i}'
+                            if col in before_df.columns:
+                                for val in before_df[col]:
+                                    try:
+                                        before_weights.append(float(val))
+                                    except:
+                                        pass
+                            if col in after_df.columns:
+                                for val in after_df[col]:
+                                    try:
+                                        after_weights.append(float(val))
+                                    except:
+                                        pass
+                        
+                        if before_weights and after_weights:
+                            avg_before = np.mean(before_weights)
+                            avg_after = np.mean(after_weights)
+                            change = avg_after - avg_before
+                            change_pct = (change / avg_before * 100) if avg_before > 0 else 0
+                            group_data_summary.append({
+                                'group': group,
+                                'avg_before': avg_before,
+                                'avg_after': avg_after,
+                                'change': change,
+                                'change_pct': change_pct
+                            })
+                
+                elif mode == "Body Temperature":
+                    # Calculate average temperature
+                    animal_type = project_data.get('animal_type', 'mouse')
+                    if animal_type == 'custom':
+                        animal_type = project_data.get('custom_animal_name', 'animal')
+                    num_animals = project_data.get('num_animals', 8)
+                    
+                    all_temps = []
+                    for i in range(1, num_animals + 1):
+                        col = f'{animal_type}_{i}'
+                        if col in df.columns:
+                            for val in df[col]:
+                                try:
+                                    all_temps.append(float(val))
+                                except:
+                                    pass
+                    
+                    if all_temps:
+                        avg_temp = np.mean(all_temps)
+                        std_temp = np.std(all_temps)
+                        group_data_summary.append({
+                            'group': group,
+                            'avg_temp': avg_temp,
+                            'std_temp': std_temp
+                        })
+                
+                elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
+                    # Calculate abnormal percentage
+                    animal_type = project_data.get('animal_type', 'mouse')
+                    if animal_type == 'custom':
+                        animal_type = project_data.get('custom_animal_name', 'animal')
+                    num_animals = project_data.get('num_animals', 8)
+                    
+                    total_count = 0
+                    abnormal_count = 0
+                    for i in range(1, num_animals + 1):
+                        col = f'{animal_type}_{i}'
+                        if col in df.columns:
+                            for val in df[col]:
+                                total_count += 1
+                                val_str = str(val).lower()
+                                if val_str in [t('abnormal').lower(), t('pale').lower(), t('cyanosis').lower()]:
+                                    abnormal_count += 1
+                    
+                    if total_count > 0:
+                        abnormal_pct = (abnormal_count / total_count * 100)
+                        group_data_summary.append({
+                            'group': group,
+                            'abnormal_pct': abnormal_pct,
+                            'abnormal_count': abnormal_count,
+                            'total_count': total_count
+                        })
+                
+                else:  # General Behavior
+                    # Calculate mean score
+                    animal_type = project_data.get('animal_type', 'mouse')
+                    if animal_type == 'custom':
+                        animal_type = project_data.get('custom_animal_name', 'animal')
+                    num_animals = project_data.get('num_animals', 8)
+                    
+                    all_scores = []
+                    for i in range(1, num_animals + 1):
+                        col = f'{animal_type}_{i}'
+                        if col in df.columns:
+                            for val in df[col]:
+                                try:
+                                    score = float(val)
+                                    if not pd.isna(score):
+                                        all_scores.append(score)
+                                except:
+                                    pass
+                    
+                    if all_scores:
+                        avg_score = np.mean(all_scores)
+                        std_score = np.std(all_scores)
+                        group_data_summary.append({
+                            'group': group,
+                            'avg_score': avg_score,
+                            'std_score': std_score
+                        })
+        
+        # Generate description based on collected data
+        if language == 'zh':
+            desc_parts = []
+            if mode == "Body Weight":
+                for gd in group_data_summary:
+                    desc_parts.append(f"{gd['group']}: 实验前平均体重 {gd['avg_before']:.2f}g, 实验后 {gd['avg_after']:.2f}g, 变化 {gd['change']:+.2f}g ({gd['change_pct']:+.1f}%)")
+            elif mode == "Body Temperature":
+                for gd in group_data_summary:
+                    desc_parts.append(f"{gd['group']}: 平均体温 {gd['avg_temp']:.2f}°C (标准差 {gd['std_temp']:.2f}°C)")
+            elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
+                for gd in group_data_summary:
+                    desc_parts.append(f"{gd['group']}: 异常率 {gd['abnormal_pct']:.1f}% ({gd['abnormal_count']}/{gd['total_count']})")
+            else:
+                for gd in group_data_summary:
+                    desc_parts.append(f"{gd['group']}: 平均得分 {gd['avg_score']:.2f} (标准差 {gd['std_score']:.2f})")
+            
+            if desc_parts:
+                return "各组数据分析结果：\n" + "；".join(desc_parts) + "。"
+            else:
+                return "暂无可用数据进行分析。"
+        else:
+            desc_parts = []
+            if mode == "Body Weight":
+                for gd in group_data_summary:
+                    desc_parts.append(f"{gd['group']}: Before {gd['avg_before']:.2f}g, After {gd['avg_after']:.2f}g, Change {gd['change']:+.2f}g ({gd['change_pct']:+.1f}%)")
+            elif mode == "Body Temperature":
+                for gd in group_data_summary:
+                    desc_parts.append(f"{gd['group']}: Mean temperature {gd['avg_temp']:.2f}°C (SD {gd['std_temp']:.2f}°C)")
+            elif mode in ["Autonomic and Sensorimotor Functions", "Reflex Capabilities", "Convulsive Behaviors and Excitability"]:
+                for gd in group_data_summary:
+                    desc_parts.append(f"{gd['group']}: Abnormal rate {gd['abnormal_pct']:.1f}% ({gd['abnormal_count']}/{gd['total_count']})")
+            else:
+                for gd in group_data_summary:
+                    desc_parts.append(f"{gd['group']}: Mean score {gd['avg_score']:.2f} (SD {gd['std_score']:.2f})")
+            
+            if desc_parts:
+                return "Group-specific analysis results:\n" + "; ".join(desc_parts) + "."
+            else:
+                return "No data available for analysis."
+    
+    except Exception as e:
+        return f"Error generating description: {str(e)}"
+
 def generate_powerpoint_content(project_data, mode_eng, language='en', file_summaries=None):
     """Generate comprehensive PowerPoint content using AI"""
     try:
@@ -1032,21 +1322,8 @@ def create_powerpoint_presentation(project_data, mode_eng, language='en', file_s
                         Inches(4)
                     )
                     
-                    # Add results description (150 words max)
-                    if mode == "General Behavior":
-                        results_desc = "Group comparison analysis revealed significant differences in behavioral scores across experimental groups. Control animals demonstrated optimal behavioral performance, while treatment groups showed varying degrees of behavioral modification. Statistical analysis confirmed significant treatment effects on exploration and grooming behaviors."
-                    elif mode == "Autonomic and Sensorimotor Functions":
-                        results_desc = "Autonomic function assessment showed distinct patterns across treatment groups, with significant differences in piloerection and respiratory patterns. Control animals maintained normal autonomic responses, while treatment groups exhibited varying degrees of autonomic modification. Statistical analysis confirmed treatment-related effects on sensorimotor coordination."
-                    elif mode == "Reflex Capabilities":
-                        results_desc = "Reflex testing revealed significant differences in response patterns across experimental groups. Control animals demonstrated normal reflex responses, while treatment groups showed varying degrees of reflex modification. Statistical analysis confirmed significant treatment effects on startle response and touch reactivity."
-                    elif mode == "Body Temperature":
-                        results_desc = "Temperature monitoring revealed distinct patterns across treatment groups, with significant differences in thermoregulatory function. Control animals maintained stable body temperatures, while treatment groups exhibited varying degrees of temperature modification. Statistical analysis confirmed treatment-related effects on thermoregulatory processes."
-                    elif mode == "Body Weight":
-                        results_desc = "Weight analysis showed significant differences across treatment groups, with varying patterns of weight change over time. Control animals maintained stable weight patterns, while treatment groups exhibited different weight trajectories. Statistical analysis confirmed treatment-related effects on body weight and growth patterns."
-                    elif mode == "Convulsive Behaviors and Excitability":
-                        results_desc = "Excitability assessment revealed significant differences in convulsive behaviors and excitability patterns across treatment groups. Control animals showed minimal excitability responses, while treatment groups exhibited varying degrees of excitability modification. Statistical analysis confirmed treatment-related effects on neurological excitability."
-                    else:
-                        results_desc = f"Analysis of {mode} revealed significant differences across experimental groups, with control animals demonstrating normal responses and treatment groups showing varying degrees of modification. Statistical analysis confirmed significant treatment effects on multiple parameters within this assessment domain."
+                    # Generate group-specific description based on actual data
+                    results_desc = generate_group_specific_description(mode, project_data, language)
                     
                     desc_box = slide.shapes.add_textbox(Inches(1), Inches(6.5), Inches(11.33), Inches(1))
                     desc_frame = desc_box.text_frame
@@ -2102,14 +2379,22 @@ with st.sidebar:
         st.session_state.ai_chatbot_active = not st.session_state.ai_chatbot_active
         st.session_state.ai_tutor_active = False
         st.session_state.ai_report_active = False
-        # Clear chat history when switching to chatbot
+        # Initialize chat when activating chatbot
         if st.session_state.ai_chatbot_active:
-            st.session_state.chatbot_chat_history = []
-            # Add welcome message for chatbot
-            chatbot_welcome_msg = "Hello! I'm your file analysis assistant. Upload multiple files and I'll help you summarize their content for your FOB test analysis."
-            if st.session_state.language == 'zh':
-                chatbot_welcome_msg = "你好！我是你的文件分析助手。上传多个文件，我将帮助你总结其内容以用于FOB测试分析。"
-            st.session_state.chatbot_chat_history.append({"role": "assistant", "content": chatbot_welcome_msg})
+            # Initialize chat messages if empty (don't auto-open floating chat)
+            st.session_state.floating_chat_open = False  # Don't auto-open the floating chat
+            # Initialize chat messages if empty
+            if 'chat_messages' not in st.session_state or not st.session_state.chat_messages:
+                st.session_state.chat_messages = []
+                # Add welcome message
+                welcome_msg = "Hello! I'm your AI assistant. I can help you analyze files, answer questions about FOB testing, and provide guidance on using this dashboard. How can I help you today?"
+                if st.session_state.language == 'zh':
+                    welcome_msg = "你好！我是你的AI助手。我可以帮助你分析文件、回答FOB测试相关问题，并提供使用这个仪表板的指导。今天我能为你做些什么？"
+                st.session_state.chat_messages.append({
+                    "role": "assistant", 
+                    "content": welcome_msg, 
+                    "timestamp": datetime.datetime.now().strftime("%H:%M")
+                })
         st.rerun()
     
     # AI Report Button
@@ -2478,7 +2763,7 @@ def fill_all_worksheets_with_random_data():
                 if mode == "Body Weight":
                     times = ['before', 'after']
                 else:
-                    times = [0, 15, 30, 45, 60]
+                    times = [0]  # Only keep 0min by default, others should be added manually
                 
                 data = []
                 for time in times:
@@ -2847,7 +3132,7 @@ def create_worksheet(mode, experiment_name, project_info):
         if mode == "Body Weight":
             times = [t('before'), t('after')]
         else:
-            times = [0, 15, 30, 45, 60]
+            times = [0]  # Only keep 0min by default, others should be added manually
         
         data = []
         for time in times:
@@ -3020,10 +3305,19 @@ def create_worksheet(mode, experiment_name, project_info):
                 # Save data as is (no migration needed)
                 final_df = edited_df.copy()
                 
+                # Sort by time to ensure proper ordering
+                final_df = final_df.sort_values(['time', 'observation']).reset_index(drop=True)
+                
                 # Update session state with edited data
                 st.session_state[worksheet_key] = final_df
                 st.session_state.worksheet_data[f"{experiment_name}_{mode}"] = final_df
                 st.session_state.save_status[experiment_name] = "saved"
+                
+                # Synchronize time points if time column was modified - sync to ALL modes
+                if mode != "Body Weight" and st.session_state.active_project:
+                    new_times = sorted(final_df['time'].unique())
+                    synchronize_time_points_across_worksheets(st.session_state.active_project, new_times, mode=None)
+                
                 # Clear temp changes
                 if temp_key in st.session_state:
                     del st.session_state[temp_key]
@@ -3056,9 +3350,18 @@ def create_worksheet(mode, experiment_name, project_info):
                             new_row[f'{animal_type}_{i}'] = '0'
                     new_rows.append(new_row)
                 
-                # Append new rows
+                # Append new rows and sort by time
                 new_df = pd.concat([edited_df, pd.DataFrame(new_rows)], ignore_index=True)
+                new_df = new_df.sort_values(['time', 'observation']).reset_index(drop=True)
                 st.session_state[worksheet_key] = new_df
+                st.session_state.worksheet_data[f"{experiment_name}_{mode}"] = new_df
+                
+                # IMPORTANT: Synchronize time points IMMEDIATELY across all worksheets - sync to ALL modes
+                # This happens before saving, so other modes update instantly
+                if st.session_state.active_project:
+                    synchronize_time_points_across_worksheets(st.session_state.active_project, [new_timestep], mode=None)
+                
+                st.success(f"{t('add_timestep')} {new_timestep} min - {t('changes_saved')} (所有模式已同步)")
                 st.rerun()
             
             if reset:
@@ -3098,9 +3401,17 @@ def create_worksheet(mode, experiment_name, project_info):
             # Save data as is (no migration needed)
             final_df_auto = edited_df_auto.copy()
             
+            # Sort by time to ensure proper ordering
+            final_df_auto = final_df_auto.sort_values(['time', 'observation']).reset_index(drop=True)
+            
             st.session_state[worksheet_key] = final_df_auto
             st.session_state.worksheet_data[f"{experiment_name}_{mode}"] = final_df_auto
             st.session_state.save_status[experiment_name] = "saved"
+            
+            # Synchronize time points if time column was modified - sync to ALL modes
+            if mode != "Body Weight" and st.session_state.active_project:
+                new_times = sorted(final_df_auto['time'].unique())
+                synchronize_time_points_across_worksheets(st.session_state.active_project, new_times, mode=None)
         
         # Show save status with timestamp
         st.success(f"{t('auto_saved')} {datetime.datetime.now().strftime('%H:%M:%S')}")
@@ -3135,9 +3446,18 @@ def create_worksheet(mode, experiment_name, project_info):
                                 new_row[f'{animal_type}_{i}'] = '0'
                         new_rows.append(new_row)
                     
-                    # Append new rows
+                    # Append new rows and sort by time
                     new_df = pd.concat([edited_df_auto, pd.DataFrame(new_rows)], ignore_index=True)
+                    new_df = new_df.sort_values(['time', 'observation']).reset_index(drop=True)
                     st.session_state[worksheet_key] = new_df
+                    st.session_state.worksheet_data[f"{experiment_name}_{mode}"] = new_df
+                    
+                    # IMPORTANT: Synchronize time points IMMEDIATELY across all worksheets - sync to ALL modes
+                    # This happens automatically, so other modes update instantly without needing to save
+                    if st.session_state.active_project:
+                        synchronize_time_points_across_worksheets(st.session_state.active_project, [new_timestep_auto], mode=None)
+                    
+                    st.success(f"{t('add_timestep')} {new_timestep_auto} min - {t('auto_saved')} (所有模式已同步)")
                     st.rerun()
     
     with tab3:
@@ -3389,7 +3709,7 @@ def create_comparative_plot(selected_for_viz, mode_eng, project, comparison_grou
         selected_groups_for_plot = st.multiselect(
             t('groups_to_plot'),
             valid_groups,
-            default=valid_groups[:3] if len(valid_groups) > 3 else valid_groups,
+            default=valid_groups,  # Show all groups by default
             key=f"groups_select_{mode_eng}"
         )
         
@@ -4011,262 +4331,65 @@ elif st.session_state.ai_chatbot_active:
     if 'is_streaming' not in st.session_state:
         st.session_state.is_streaming = False
     
-    # Welcome message
-    if not st.session_state.chat_messages:
-        welcome_msg = "Hello! I'm your AI assistant. I can help you analyze files, answer questions about FOB testing, and provide guidance on using this dashboard. How can I help you today?"
-        if st.session_state.language == 'zh':
-            welcome_msg = "你好！我是你的AI助手。我可以帮助你分析文件、回答FOB测试相关问题，并提供使用这个仪表板的指导。今天我能为你做些什么？"
-        st.session_state.chat_messages.append({"role": "assistant", "content": welcome_msg, "timestamp": datetime.datetime.now().strftime("%H:%M")})
+    # Welcome message - ensure it's always present when chatbot is active
+    if st.session_state.ai_chatbot_active:
+        if 'chat_messages' not in st.session_state or not st.session_state.chat_messages:
+            st.session_state.chat_messages = []
+            welcome_msg = "Hello! I'm your AI assistant. I can help you analyze files, answer questions about FOB testing, and provide guidance on using this dashboard. How can I help you today?"
+            if st.session_state.language == 'zh':
+                welcome_msg = "你好！我是你的AI助手。我可以帮助你分析文件、回答FOB测试相关问题，并提供使用这个仪表板的指导。今天我能为你做些什么？"
+            st.session_state.chat_messages.append({
+                "role": "assistant", 
+                "content": welcome_msg, 
+                "timestamp": datetime.datetime.now().strftime("%H:%M")
+            })
     
-    # Floating Chat Toggle Button
-    col_toggle, col_status = st.columns([1, 3])
-    with col_toggle:
-        if st.button("💬 Open Chat", use_container_width=True, type="primary"):
-            st.session_state.floating_chat_open = True
-            st.rerun()
-    
-    with col_status:
-        if st.session_state.floating_chat_open:
-            st.success("💬 Chat is now open! Click 'Close Chat' to minimize.")
-    
-    # Floating Chat Box (appears when open)
-    if st.session_state.floating_chat_open:
-        # Create floating chat container with custom CSS
-        st.markdown("""
-        <style>
-        .floating-chat {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 80%;
-            max-width: 600px;
-            height: 70vh;
-            background: white;
-            border: 2px solid #007bff;
-            border-radius: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-            z-index: 1000;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-        .chat-header {
-            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-            color: white;
-            padding: 15px 20px;
-            border-radius: 18px 18px 0 0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .chat-body {
-            flex: 1;
-            padding: 20px;
-            overflow-y: auto;
-            background: #f8f9fa;
-        }
-        .chat-message {
-            margin: 15px 0;
-            padding: 15px;
-            border-radius: 20px;
-            max-width: 80%;
-            word-wrap: break-word;
-            animation: fadeIn 0.3s ease-in;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .user-message {
-            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-            color: white;
-            margin-left: auto;
-            margin-right: 10px;
-            text-align: right;
-        }
-        .assistant-message {
-            background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
-            color: white;
-            margin-right: auto;
-            margin-left: 10px;
-        }
-        .streaming-message {
-            background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
-            color: white;
-            margin-right: auto;
-            margin-left: 10px;
-            border: 2px dashed #fff;
-        }
-        .message-time {
-            font-size: 0.8em;
-            opacity: 0.7;
-            margin-top: 5px;
-        }
-        .typing-indicator {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #3498db;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .chat-input-area {
-            padding: 20px;
-            background: white;
-            border-top: 1px solid #e0e0e0;
-        }
-        .streaming-text {
-            font-family: 'Courier New', monospace;
-            white-space: pre-wrap;
-        }
-        </style>
-        """, unsafe_allow_html=True)
+    # Simple inline chat interface (no floating popup)
+    if st.session_state.ai_chatbot_active:
+        st.markdown("---")
+        st.subheader("💬 Chat with AI Assistant")
         
-        # Floating Chat Container
-        with st.container():
-            st.markdown("""
-            <div class="floating-chat">
-                <div class="chat-header">
-                    <div><strong>🤖 AI Assistant Chat</strong></div>
-                    <div style="cursor: pointer;" onclick="document.querySelector('.floating-chat').style.display='none'">❌</div>
-                </div>
-                <div class="chat-body">
-            """, unsafe_allow_html=True)
-            
-            # Display chat messages
+        # Display chat messages inline
+        if st.session_state.chat_messages:
             for i, message in enumerate(st.session_state.chat_messages):
                 if message["role"] == "user":
-                    st.markdown(f"""
-                    <div class="chat-message user-message">
-                        <div><strong>👤 You</strong></div>
-                        <div>{message['content']}</div>
-                        <div class="message-time">{message.get('timestamp', '')}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    with st.chat_message("user"):
+                        st.write(message['content'])
+                        if message.get('timestamp'):
+                            st.caption(f"Time: {message['timestamp']}")
                 else:
-                    st.markdown(f"""
-                    <div class="chat-message assistant-message">
-                        <div><strong>🤖 AI Assistant</strong></div>
-                        <div>{message['content']}</div>
-                        <div class="message-time">{message.get('timestamp', '')}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    with st.chat_message("assistant"):
+                        st.write(message['content'])
+                        if message.get('timestamp'):
+                            st.caption(f"Time: {message['timestamp']}")
+        
+        # Show streaming response if active
+        if st.session_state.is_streaming and st.session_state.current_streaming_response:
+            with st.chat_message("assistant"):
+                st.write(st.session_state.current_streaming_response)
+                st.caption("Typing...")
+        
+        # Chat input
+        user_message = st.chat_input("Ask me anything about FOB testing, data analysis, or dashboard usage...")
+        
+        # Handle user input
+        if user_message:
+            # Add user message to chat
+            st.session_state.chat_messages.append({
+                "role": "user", 
+                "content": user_message, 
+                "timestamp": datetime.datetime.now().strftime("%H:%M")
+            })
             
-            # Show streaming response if active
-            if st.session_state.is_streaming and st.session_state.current_streaming_response:
-                st.markdown(f"""
-                <div class="chat-message streaming-message">
-                    <div><strong>🤖 AI Assistant</strong></div>
-                    <div class="streaming-text">{st.session_state.current_streaming_response}</div>
-                    <div class="typing-indicator"></div>
-                    <div>Typing...</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-            # Chat Input Area
-            st.markdown('<div class="chat-input-area">', unsafe_allow_html=True)
-            
-            # Quick action buttons
-            st.markdown("**💡 Quick Actions:**")
-            col_q1, col_q2, col_q3 = st.columns(3)
-            
-            with col_q1:
-                if st.button("📊 Analyze Files", use_container_width=True, key="floating_q1"):
-                    if st.session_state.file_summaries:
-                        question = "Can you analyze the uploaded files and provide insights?"
-                        if st.session_state.language == 'zh':
-                            question = "你能分析上传的文件并提供见解吗？"
-                        st.session_state.chat_messages.append({"role": "user", "content": question, "timestamp": datetime.datetime.now().strftime("%H:%M")})
-                        
-                        # Start streaming response
-                        st.session_state.is_streaming = True
-                        st.session_state.current_streaming_response = ""
-                        st.rerun()
-                    else:
-                        st.warning("Please upload files first")
-            
-            with col_q2:
-                if st.button("🔍 Find Patterns", use_container_width=True, key="floating_q2"):
-                    if st.session_state.file_summaries:
-                        question = "What patterns or trends do you see in the uploaded files?"
-                        if st.session_state.language == 'zh':
-                            question = "你在上传的文件中看到了什么模式或趋势？"
-                        st.session_state.chat_messages.append({"role": "user", "content": question, "timestamp": datetime.datetime.now().strftime("%H:%M")})
-                        
-                        # Start streaming response
-                        st.session_state.is_streaming = True
-                        st.session_state.current_streaming_response = ""
-                        st.rerun()
-                    else:
-                        st.warning("Please upload files first")
-            
-            with col_q3:
-                if st.button("📈 Data Insights", use_container_width=True, key="floating_q3"):
-                    if st.session_state.file_summaries:
-                        question = "What insights can you provide from the uploaded data?"
-                        if st.session_state.language == 'zh':
-                            question = "你能从上传的数据中提供什么见解？"
-                        st.session_state.chat_messages.append({"role": "user", "content": question, "timestamp": datetime.datetime.now().strftime("%H:%M")})
-                        
-                        # Start streaming response
-                        st.session_state.is_streaming = True
-                        st.session_state.current_streaming_response = ""
-                        st.rerun()
-                    else:
-                        st.warning("Please upload files first")
-            
-            # Chat input
-            st.markdown("**💬 Type your message:**")
-            col_input, col_send = st.columns([4, 1])
-            
-            with col_input:
-                user_message = st.text_input(
-                    "Type your message here...",
-                    key="floating_chat_input",
-                    placeholder="Ask me anything about FOB testing, data analysis, or dashboard usage...",
-                    help="Type your question or message here"
-                )
-            
-            with col_send:
-                send_button = st.button("🚀 Send", use_container_width=True, type="primary")
-            
-            # Handle send button click
-            if send_button and user_message.strip():
-                # Add user message to chat
-                st.session_state.chat_messages.append({
-                    "role": "user", 
-                    "content": user_message.strip(), 
-                    "timestamp": datetime.datetime.now().strftime("%H:%M")
-                })
-                
-                # Start streaming response
-                st.session_state.is_streaming = True
-                st.session_state.current_streaming_response = ""
-                st.rerun()
-            
-            # Control buttons
-            col_clear, col_close = st.columns(2)
-            
-            with col_clear:
-                if st.button("🗑️ Clear Chat", use_container_width=True):
-                    st.session_state.chat_messages = []
-                    st.rerun()
-            
-            with col_close:
-                if st.button("❌ Close Chat", use_container_width=True):
-                    st.session_state.floating_chat_open = False
-                    st.rerun()
-            
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            # Start streaming response
+            st.session_state.is_streaming = True
+            st.session_state.current_streaming_response = ""
+            st.rerun()
+        
+        # Clear chat button
+        if st.button("🗑️ Clear Chat", use_container_width=True, key="clear_inline_chat"):
+            st.session_state.chat_messages = []
+            st.rerun()
     
     # Handle streaming responses
     if st.session_state.is_streaming:
